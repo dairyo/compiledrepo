@@ -121,8 +121,12 @@ func (r *Repository[T]) load(key string) (T, error) {
 // It is intended for use during initialization where thread safety is guaranteed by the caller.
 func (r *Repository[T]) compileAll() error {
 	return fs.WalkDir(r.fsys, ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return err
+		}
+
+		if d != nil && d.IsDir() {
+			return nil
 		}
 
 		if r.filter != nil && !r.filter(p) {
