@@ -28,7 +28,7 @@ type PathNormalizer func(id string) string
 type PathFilter func(path string) bool
 
 // Repository manages compiled resources of type T.
-// It provides thread-safe access and supports both eager and lazy loading strategies.
+// It provides thread-safe access and supports both eager and lazy compilation strategies.
 type Repository[T any] struct {
 	// fsys is the source filesystem.
 	fsys fs.FS
@@ -36,11 +36,11 @@ type Repository[T any] struct {
 	compiler func([]byte) (T, error)
 	// normalizer resolves IDs to clean paths.
 	normalizer PathNormalizer
-	// filter restricts which files are loaded into the repository.
+	// filter restricts which files are compiled into the repository.
 	filter PathFilter
 	// resources stores compiled instances for fast retrieval.
 	resources sync.Map
-	// mu protects the loading process from race conditions during concurrent Get calls.
+	// mu protects the compilation process from race conditions during concurrent Get calls.
 	mu sync.Mutex
 	// runtime enables on-demand compilation during Get calls.
 	runtime bool
@@ -80,7 +80,7 @@ func WithRuntime() Option {
 }
 
 // New creates and initializes a new Repository for type T.
-// By default, it performs eager loading (compiling all files in the FS) unless WithLazy is provided.
+// By default, it performs eager compilation (compiling all files in the FS) unless WithLazy is provided.
 func New[T any](fsys fs.FS, compiler func([]byte) (T, error), opts ...Option) (*Repository[T], error) {
 	if fsys == nil || compiler == nil {
 		return nil, fmt.Errorf("fsys and compiler are required")
@@ -105,19 +105,19 @@ func New[T any](fsys fs.FS, compiler func([]byte) (T, error), opts ...Option) (*
 		runtime:    cfg.runtime,
 	}
 
-	// Perform eager loading: Mutex is not required here as the instance is not
+	// Perform eager compilation: Mutex is not required here as the instance is not
 	// yet exposed to concurrent access during initialization.
 	if !cfg.lazy {
 		if err := repo.compileAll(); err != nil {
-			return nil, fmt.Errorf("eager load failed: %w", err)
+			return nil, fmt.Errorf("eager compilation failed: %w", err)
 		}
 	}
 	return repo, nil
 }
 
-// load handles the internal logic of reading, compiling, and caching a resource.
+// compile handles the internal logic of reading, compiling, and caching a resource.
 // This method is not thread-safe; callers must ensure appropriate locking.
-func (r *Repository[T]) load(key string) (T, error) {
+func (r *Repository[T]) compile(key string) (T, error) {
 	data, err := fs.ReadFile(r.fsys, key)
 	if err != nil {
 		var zero T
@@ -150,7 +150,7 @@ func (r *Repository[T]) compileAll() error {
 			return nil
 		}
 
-		_, err = r.load(p)
+		_, err = r.compile(p)
 		return err
 	})
 }
@@ -186,5 +186,5 @@ func (r *Repository[T]) Get(id string) (T, error) {
 		return val.(T), nil
 	}
 
-	return r.load(key)
+	return r.compile(key)
 }
