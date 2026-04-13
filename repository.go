@@ -14,6 +14,11 @@ var (
 
 	// ErrFiltered is returned when a resource is rejected by the PathFilter.
 	ErrFiltered = errors.New("resource filtered")
+
+	// ErrNoRuntime is returned when a resource is missing from the cache and
+	// runtime compilation is disabled. This typically occurs when WithLazy()
+	// is used without WithRuntime().
+	ErrNoRuntime = errors.New("no runtime compile")
 )
 
 // PathNormalizer is a function type that converts an external ID into an internal file path.
@@ -23,49 +28,59 @@ type PathNormalizer func(id string) string
 type PathFilter func(path string) bool
 
 // Repository manages compiled resources of type T.
-// It provides thread-safe access and optional eager loading.
+// It provides thread-safe access and supports both eager and lazy loading strategies.
 type Repository[T any] struct {
 	// fsys is the source filesystem.
 	fsys fs.FS
-	// compiler is a function that transforms raw bytes into type T.
+	// compiler transforms raw bytes into the compiled type T.
 	compiler func([]byte) (T, error)
 	// normalizer resolves IDs to clean paths.
 	normalizer PathNormalizer
-	// filter restricts which files are loaded.
+	// filter restricts which files are loaded into the repository.
 	filter PathFilter
-	// resources stores compiled instances.
+	// resources stores compiled instances for fast retrieval.
 	resources sync.Map
 	// mu protects the loading process from race conditions during concurrent Get calls.
 	mu sync.Mutex
+	// runtime enables on-demand compilation during Get calls.
+	runtime bool
 }
 
-// options holds configuration for the Repository.
+// options holds the configuration for the Repository.
 type options struct {
 	normalizer PathNormalizer
 	filter     PathFilter
 	lazy       bool
+	runtime    bool
 }
 
 // Option defines a functional configuration for the Repository.
 type Option func(*options)
 
 // WithNormalizer sets a custom rule for path normalization.
+// By default, the ID is used directly as the path.
 func WithNormalizer(n PathNormalizer) Option {
 	return func(o *options) { o.normalizer = n }
 }
 
-// WithFilter sets a filter to limit which files are loaded into the repository.
+// WithFilter sets a filter to limit which files are managed by the repository.
 func WithFilter(f PathFilter) Option {
 	return func(o *options) { o.filter = f }
 }
 
-// WithLazy enables lazy loading, deferring compilation until the resource is first requested.
+// WithLazy enables lazy loading, deferring compilation until a resource is first requested via Get.
 func WithLazy() Option {
 	return func(o *options) { o.lazy = true }
 }
 
+// WithRuntime enables runtime compilation.
+// When enabled, Get will attempt to compile and cache resources that are not yet loaded.
+func WithRuntime() Option {
+	return func(o *options) { o.runtime = true }
+}
+
 // New creates and initializes a new Repository for type T.
-// By default, it performs eager loading unless WithLazy is provided.
+// By default, it performs eager loading (compiling all files in the FS) unless WithLazy is provided.
 func New[T any](fsys fs.FS, compiler func([]byte) (T, error), opts ...Option) (*Repository[T], error) {
 	if fsys == nil || compiler == nil {
 		return nil, fmt.Errorf("fsys and compiler are required")
@@ -75,6 +90,7 @@ func New[T any](fsys fs.FS, compiler func([]byte) (T, error), opts ...Option) (*
 		normalizer: func(id string) string { return id },
 		filter:     nil,
 		lazy:       false,
+		runtime:    false,
 	}
 
 	for _, opt := range opts {
@@ -86,10 +102,11 @@ func New[T any](fsys fs.FS, compiler func([]byte) (T, error), opts ...Option) (*
 		compiler:   compiler,
 		normalizer: cfg.normalizer,
 		filter:     cfg.filter,
+		runtime:    cfg.runtime,
 	}
 
-	// Perform eager loading: Lock is omitted here as the instance is not yet exposed
-	// to external concurrent access during initialization.
+	// Perform eager loading: Mutex is not required here as the instance is not
+	// yet exposed to concurrent access during initialization.
 	if !cfg.lazy {
 		if err := repo.compileAll(); err != nil {
 			return nil, fmt.Errorf("eager load failed: %w", err)
@@ -98,8 +115,8 @@ func New[T any](fsys fs.FS, compiler func([]byte) (T, error), opts ...Option) (*
 	return repo, nil
 }
 
-// load handles the core logic of reading, compiling, and storing a resource.
-// It does not handle synchronization; callers must manage locks if necessary.
+// load handles the internal logic of reading, compiling, and caching a resource.
+// This method is not thread-safe; callers must ensure appropriate locking.
 func (r *Repository[T]) load(key string) (T, error) {
 	data, err := fs.ReadFile(r.fsys, key)
 	if err != nil {
@@ -117,8 +134,8 @@ func (r *Repository[T]) load(key string) (T, error) {
 	return val, nil
 }
 
-// compileAll scans the filesystem and compiles all valid resources.
-// It is intended for use during initialization where thread safety is guaranteed by the caller.
+// compileAll scans the filesystem and compiles all files that pass the filter.
+// Designed for use during initialization or controlled maintenance tasks.
 func (r *Repository[T]) compileAll() error {
 	return fs.WalkDir(r.fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -139,7 +156,8 @@ func (r *Repository[T]) compileAll() error {
 }
 
 // Get returns the compiled resource associated with the given ID.
-// It is thread-safe and implements double-checked locking to ensure only one compilation occurs per ID.
+// It is thread-safe and utilizes double-checked locking to prevent redundant
+// compilation for the same resource.
 func (r *Repository[T]) Get(id string) (T, error) {
 	key := path.Clean(r.normalizer(id))
 
@@ -148,16 +166,22 @@ func (r *Repository[T]) Get(id string) (T, error) {
 		return zero, fmt.Errorf("%w: %s", ErrFiltered, id)
 	}
 
-	// Fast Path: Return already loaded resource without locking.
+	// Fast Path: Return the cached resource without acquiring the lock.
 	if val, ok := r.resources.Load(key); ok {
 		return val.(T), nil
+	}
+
+	// Check if runtime compilation is permitted.
+	if !r.runtime {
+		var zero T
+		return zero, fmt.Errorf("%w: %s", ErrNoRuntime, key)
 	}
 
 	// Slow Path: Protect the compilation process with a Mutex.
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Double-checked locking to prevent redundant loads.
+	// Double-checked locking: Verify if another goroutine compiled it while waiting for the lock.
 	if val, ok := r.resources.Load(key); ok {
 		return val.(T), nil
 	}
