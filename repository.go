@@ -16,9 +16,22 @@ var (
 	ErrFiltered = errors.New("resource filtered")
 
 	// ErrNoRuntime is returned when a resource is missing from the cache and
-	// runtime compilation is disabled. This typically occurs when WithLazy()
-	// is used without WithRuntime().
+	// runtime compilation is disabled. This typically occurs when Eager mode
+	// is used and the requested resource was not loaded during initialization.
 	ErrNoRuntime = errors.New("no runtime compile")
+)
+
+// Mode defines the loading and compilation strategy for the repository.
+type Mode int
+
+const (
+	// Eager compiles all resources during initialization. Runtime compilation is disabled.
+	Eager Mode = iota
+	// Lazy defers compilation until a resource is first requested. Runtime compilation is enabled.
+	Lazy
+	// EagerWithRuntime compiles all resources during initialization and also allows
+	// compilation of new resources at runtime.
+	EagerWithRuntime
 )
 
 // PathNormalizer is a function type that converts an external ID into an internal file path.
@@ -68,19 +81,24 @@ func WithFilter(f PathFilter) Option {
 	return func(o *options) { o.filter = f }
 }
 
-// WithLazy enables lazy loading, deferring compilation until a resource is first requested via Get.
-func WithLazy() Option {
-	return func(o *options) { o.lazy = true }
-}
-
-// WithRuntime enables runtime compilation.
-// When enabled, Get will attempt to compile and cache resources that are not yet loaded.
-func WithRuntime() Option {
-	return func(o *options) { o.runtime = true }
+// WithMode sets the compilation strategy for the repository.
+func WithMode(m Mode) Option {
+	return func(o *options) {
+		switch m {
+		case Eager:
+			o.lazy, o.runtime = false, false
+		case Lazy:
+			o.lazy, o.runtime = true, true
+		case EagerWithRuntime:
+			o.lazy, o.runtime = false, true
+		default:
+			panic("invalid mode")
+		}
+	}
 }
 
 // New creates and initializes a new Repository for type T.
-// By default, it performs eager compilation (compiling all files in the FS) unless WithLazy is provided.
+// By default, it performs eager compilation (compiling all files in the FS) without runtime compilation.
 func New[T any](fsys fs.FS, compiler func([]byte) (T, error), opts ...Option) (*Repository[T], error) {
 	if fsys == nil || compiler == nil {
 		return nil, fmt.Errorf("fsys and compiler are required")
