@@ -69,8 +69,7 @@ type Repository[T any] struct {
 type options struct {
 	normalizer PathNormalizer
 	filter     PathFilter
-	lazy       bool
-	runtime    bool
+	mode       Mode
 }
 
 // Option defines a functional configuration for the Repository.
@@ -89,18 +88,7 @@ func WithFilter(f PathFilter) Option {
 
 // WithMode sets the compilation strategy for the repository.
 func WithMode(m Mode) Option {
-	return func(o *options) {
-		switch m {
-		case Eager:
-			o.lazy, o.runtime = false, false
-		case Lazy:
-			o.lazy, o.runtime = true, true
-		case EagerWithRuntime:
-			o.lazy, o.runtime = false, true
-		default:
-			panic("invalid mode")
-		}
-	}
+	return func(o *options) { o.mode = m }
 }
 
 // New creates and initializes a new Repository for type T.
@@ -113,12 +101,23 @@ func New[T any](fsys fs.FS, compiler func([]byte) (T, error), opts ...Option) (*
 	cfg := options{
 		normalizer: func(id string) string { return id },
 		filter:     nil,
-		lazy:       false,
-		runtime:    false,
+		mode:       Eager,
 	}
 
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+
+	var lazy, runtime bool
+	switch cfg.mode {
+	case Eager:
+		lazy, runtime = false, false
+	case Lazy:
+		lazy, runtime = true, true
+	case EagerWithRuntime:
+		lazy, runtime = false, true
+	default:
+		return nil, fmt.Errorf("invalid mode: %v", cfg.mode)
 	}
 
 	repo := &Repository[T]{
@@ -126,12 +125,12 @@ func New[T any](fsys fs.FS, compiler func([]byte) (T, error), opts ...Option) (*
 		compiler:   compiler,
 		normalizer: cfg.normalizer,
 		filter:     cfg.filter,
-		runtime:    cfg.runtime,
+		runtime:    runtime,
 	}
 
 	// Perform eager compilation: Mutex is not required here as the instance is not
 	// yet exposed to concurrent access during initialization.
-	if !cfg.lazy {
+	if !lazy {
 		if err := repo.compileAll(); err != nil {
 			return nil, fmt.Errorf("eager compilation failed: %w", err)
 		}
@@ -174,7 +173,7 @@ func (r *Repository[T]) compileAll() error {
 			return nil
 		}
 
-		_, err = r.compile(p)
+		_, err = r.compile(path.Clean(p))
 		return err
 	})
 }

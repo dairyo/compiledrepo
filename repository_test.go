@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io/fs"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 )
@@ -33,32 +35,16 @@ func TestWithNormalizer(t *testing.T) {
 			fn:       func(id string) string { return id + ".json" },
 			expected: "file.json",
 		},
-		{
-			name:     "add directory and extension",
-			id:       "file",
-			fn:       func(id string) string { return "template/" + id + ".json" },
-			expected: "template/file.json",
-		},
-		{
-			name:     "ChangeExtension",
-			id:       "data.json",
-			fn:       func(id string) string { return id[:len(id)-4] + "yaml" },
-			expected: "data.yaml",
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := &options{}
-			opt := WithNormalizer(tt.fn)
-			opt(opts)
-
+			WithNormalizer(tt.fn)(opts)
 			if opts.normalizer == nil {
 				t.Fatal("normalizer should not be nil")
 			}
-
-			got := opts.normalizer(tt.id)
-			if got != tt.expected {
+			if got := opts.normalizer(tt.id); got != tt.expected {
 				t.Errorf("got %s, want %s", got, tt.expected)
 			}
 		})
@@ -73,18 +59,6 @@ func TestWithFilter(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "always allow",
-			path:     "file.txt",
-			fn:       func(path string) bool { return true },
-			expected: true,
-		},
-		{
-			name:     "always reject",
-			path:     "file.txt",
-			fn:       func(path string) bool { return false },
-			expected: false,
-		},
-		{
 			name:     "allow only .txt files",
 			path:     "document.txt",
 			fn:       func(path string) bool { return strings.HasSuffix(path, ".txt") },
@@ -96,32 +70,16 @@ func TestWithFilter(t *testing.T) {
 			fn:       func(path string) bool { return !strings.HasSuffix(path, ".json") },
 			expected: false,
 		},
-		{
-			name:     "allow only files in assets directory",
-			path:     "assets/image.png",
-			fn:       func(path string) bool { return strings.HasPrefix(path, "assets/") },
-			expected: true,
-		},
-		{
-			name:     "reject files outside assets directory",
-			path:     "src/main.go",
-			fn:       func(path string) bool { return strings.HasPrefix(path, "assets/") },
-			expected: false,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := &options{}
-			opt := WithFilter(tt.fn)
-			opt(opts)
-
+			WithFilter(tt.fn)(opts)
 			if opts.filter == nil {
 				t.Fatal("filter should not be nil")
 			}
-
-			got := opts.filter(tt.path)
-			if got != tt.expected {
+			if got := opts.filter(tt.path); got != tt.expected {
 				t.Errorf("got %v, want %v", got, tt.expected)
 			}
 		})
@@ -130,65 +88,208 @@ func TestWithFilter(t *testing.T) {
 
 func TestWithMode(t *testing.T) {
 	tests := []struct {
-		name            string
-		mode            Mode
-		expectedLazy    bool
-		expectedRuntime bool
+		name     string
+		mode     Mode
+		expected Mode
 	}{
-		{
-			name:            "Eager mode",
-			mode:            Eager,
-			expectedLazy:    false,
-			expectedRuntime: false,
-		},
-		{
-			name:            "Lazy mode",
-			mode:            Lazy,
-			expectedLazy:    true,
-			expectedRuntime: true,
-		},
-		{
-			name:            "EagerWithRuntime mode",
-			mode:            EagerWithRuntime,
-			expectedLazy:    false,
-			expectedRuntime: true,
-		},
+		{"Eager", Eager, Eager},
+		{"Lazy", Lazy, Lazy},
+		{"EagerWithRuntime", EagerWithRuntime, EagerWithRuntime},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := &options{}
-			opt := WithMode(tt.mode)
-			opt(opts)
-
-			if opts.lazy != tt.expectedLazy {
-				t.Errorf("lazy: got %v, want %v", opts.lazy, tt.expectedLazy)
-			}
-			if opts.runtime != tt.expectedRuntime {
-				t.Errorf("runtime: got %v, want %v", opts.runtime, tt.expectedRuntime)
+			WithMode(tt.mode)(opts)
+			if opts.mode != tt.expected {
+				t.Errorf("got %v, want %v", opts.mode, tt.expected)
 			}
 		})
 	}
+}
 
-	t.Run("invalid mode should panic", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("WithMode did not panic on invalid mode")
-			}
-		}()
+func TestNew(t *testing.T) {
+	successCompiler := func(b []byte) (string, error) { return string(b), nil }
+	failCompiler := func(b []byte) (string, error) { return "", errors.New("compile fail") }
+	fsys := fstest.MapFS{"test.txt": {Data: []byte("hello")}}
 
-		opts := &options{}
-		opt := WithMode(Mode(999))
-		opt(opts)
+	t.Run("Success", func(t *testing.T) {
+		tests := []struct {
+			name string
+			mode Mode
+		}{
+			{"Eager", Eager},
+			{"Lazy", Lazy},
+			{"EagerWithRuntime", EagerWithRuntime},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				repo, err := New[string](fsys, successCompiler, WithMode(tt.mode))
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if repo == nil {
+					t.Fatal("repository should not be nil")
+				}
+			})
+		}
+	})
+
+	t.Run("Failure", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			fsys     fs.FS
+			compiler func([]byte) (string, error)
+			opts     []Option
+		}{
+			{
+				name:     "nil fsys",
+				fsys:     nil,
+				compiler: successCompiler,
+				opts:     nil,
+			},
+			{
+				name:     "nil compiler",
+				fsys:     fsys,
+				compiler: nil,
+				opts:     nil,
+			},
+			{
+				name:     "invalid mode",
+				fsys:     fsys,
+				compiler: successCompiler,
+				opts:     []Option{WithMode(Mode(999))},
+			},
+			{
+				name:     "eager compilation failure",
+				fsys:     fsys,
+				compiler: failCompiler,
+				opts:     []Option{WithMode(Eager)},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				repo, err := New[string](tt.fsys, tt.compiler, tt.opts...)
+				if err == nil {
+					t.Fatal("expected error but got nil")
+				}
+				if repo != nil {
+					t.Errorf("expected nil repository on error, got %v", repo)
+				}
+			})
+		}
+	})
+}
+
+func TestRepository_Get(t *testing.T) {
+	compiler := func(b []byte) (string, error) { return string(b), nil }
+	fsys := fstest.MapFS{
+		"a.txt": {Data: []byte("content-a")},
+		"b.txt": {Data: []byte("content-b")},
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			mode       Mode
+			id         string
+			normalizer PathNormalizer
+			expected   string
+		}{
+			{
+				name:     "Fast Path (Cache Hit)",
+				mode:     Eager,
+				id:       "a.txt",
+				expected: "content-a",
+			},
+			{
+				name:     "Slow Path (Lazy Load)",
+				mode:     Lazy,
+				id:       "a.txt",
+				expected: "content-a",
+			},
+			{
+				name: "Normalizer and Clean",
+				mode: Lazy,
+				id:   "a.txt",
+				normalizer: func(id string) string {
+					return id + "/../a.txt"
+				},
+				expected: "content-a",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var opts []Option
+				opts = append(opts, WithMode(tt.mode))
+				if tt.normalizer != nil {
+					opts = append(opts, WithNormalizer(tt.normalizer))
+				}
+
+				repo, _ := New[string](fsys, compiler, opts...)
+				val, err := repo.Get(tt.id)
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if val != tt.expected {
+					t.Errorf("got %s, want %s", val, tt.expected)
+				}
+			})
+		}
+	})
+
+	t.Run("Failure", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			mode     Mode
+			id       string
+			filter   PathFilter
+			expected error
+		}{
+			{
+				name: "Filtered",
+				mode: Eager,
+				id:   "a.txt",
+				filter: func(p string) bool {
+					return p != "a.txt"
+				},
+				expected: ErrFiltered,
+			},
+			{
+				name:     "No Runtime",
+				mode:     Eager,
+				id:       "non-existent.txt",
+				expected: ErrNoRuntime,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var opts []Option
+				opts = append(opts, WithMode(tt.mode))
+				if tt.filter != nil {
+					opts = append(opts, WithFilter(tt.filter))
+				}
+
+				repo, _ := New[string](fsys, compiler, opts...)
+				_, err := repo.Get(tt.id)
+				if !errors.Is(err, tt.expected) {
+					t.Errorf("expected error %v, got %v", tt.expected, err)
+				}
+			})
+		}
 	})
 }
 
 func TestRepository_compile(t *testing.T) {
-	t.Run("Success", func(t *testing.T) {
-		successCompiler := func(b []byte) (string, error) {
-			return string(b), nil
-		}
+	successCompiler := func(b []byte) (string, error) { return string(b), nil }
+	errInternal := errors.New("internal error")
+	failCompiler := func(b []byte) (string, error) { return "", errInternal }
 
+	t.Run("Success", func(t *testing.T) {
 		tests := []struct {
 			name        string
 			fs          fstest.MapFS
@@ -227,7 +328,6 @@ func TestRepository_compile(t *testing.T) {
 				if val != tt.expectedVal {
 					t.Errorf("got %s, want %s", val, tt.expectedVal)
 				}
-
 				if cached, ok := repo.resources.Load(tt.key); !ok || cached.(string) != tt.expectedVal {
 					t.Error("value was not stored in resources map")
 				}
@@ -236,24 +336,20 @@ func TestRepository_compile(t *testing.T) {
 	})
 
 	t.Run("Failure", func(t *testing.T) {
-		errInternal := errors.New("internal error")
-		failCompiler := func(b []byte) (string, error) {
-			return "", errInternal
-		}
-
 		tests := []struct {
 			name                string
 			fs                  fstest.MapFS
 			key                 string
-			expectedError       error // 1段目のセンチネルエラー
-			expectedInternalErr error // 2段目の内部エラー (任意)
+			compiler            func([]byte) (string, error)
+			expectedError       error
+			expectedInternalErr error
 		}{
 			{
 				name:          "filesystem error",
 				fs:            fstest.MapFS{},
 				key:           "missing.txt",
+				compiler:      successCompiler,
 				expectedError: ErrNotFound,
-				// expectedInternalErr は nil のまま
 			},
 			{
 				name: "compiler error",
@@ -261,6 +357,7 @@ func TestRepository_compile(t *testing.T) {
 					"error.txt": {Data: []byte("some data")},
 				},
 				key:                 "error.txt",
+				compiler:            failCompiler,
 				expectedError:       ErrCompile,
 				expectedInternalErr: errInternal,
 			},
@@ -270,7 +367,7 @@ func TestRepository_compile(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				repo := &Repository[string]{
 					fsys:     tt.fs,
-					compiler: failCompiler,
+					compiler: tt.compiler,
 				}
 
 				_, err := repo.compile(tt.key)
@@ -282,17 +379,14 @@ func TestRepository_compile(t *testing.T) {
 					t.Errorf("expected error to wrap %v, got %v", tt.expectedError, err)
 				}
 
-				if tt.expectedInternalErr != nil {
-					if !errors.Is(err, tt.expectedInternalErr) {
-						t.Errorf("expected error to wrap internal error %v, got %v", tt.expectedInternalErr, err)
-					}
+				if tt.expectedInternalErr != nil && !errors.Is(err, tt.expectedInternalErr) {
+					t.Errorf("expected error to wrap internal error %v, got %v", tt.expectedInternalErr, err)
 				}
 			})
 		}
 	})
 }
 
-// mockErrorFS は WalkDir 中に意図的にエラーを発生させるためのモックFSです
 type mockErrorFS struct {
 	fs.FS
 }
@@ -302,66 +396,44 @@ func (m *mockErrorFS) Open(name string) (fs.File, error) {
 }
 
 func TestRepository_compileAll(t *testing.T) {
-	mockFilter := func(path string) bool {
-		return len(path) > 4 && strings.HasSuffix(path, ".txt")
-	}
+	successCompiler := func(b []byte) (string, error) { return string(b), nil }
+	failCompiler := func(b []byte) (string, error) { return "", errors.New("compile fail") }
 
 	t.Run("Success", func(t *testing.T) {
-		successCompiler := func(b []byte) (string, error) {
-			return string(b), nil
-		}
-
-		fsys := fstest.MapFS{
-			"file1.txt":     {Data: []byte("content1")},
-			"file2.txt":     {Data: []byte("content2")},
-			"ignore.json":   {Data: []byte("content3")},
-			"dir/file3.txt": {Data: []byte("content3")},
-		}
-
-		repo := &Repository[string]{
-			fsys:     fsys,
-			compiler: successCompiler,
-			filter:   mockFilter,
-		}
-
-		err := repo.compileAll()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		expectedFiles := []string{"file1.txt", "file2.txt", "dir/file3.txt"}
-		for _, f := range expectedFiles {
-			if _, ok := repo.resources.Load(f); !ok {
-				t.Errorf("expected file %s to be compiled", f)
-			}
-		}
-
-		if _, ok := repo.resources.Load("ignore.json"); ok {
-			t.Error("expected ignore.json to be filtered out")
-		}
-	})
-
-	t.Run("Failure", func(t *testing.T) {
-		failCompiler := func(b []byte) (string, error) {
-			return "", errors.New("mock compile error")
-		}
-
 		tests := []struct {
-			name          string
-			fsys          fs.FS
-			expectedError error
+			name             string
+			fsys             fstest.MapFS
+			filter           PathFilter
+			expectedCompiled map[string]string
+			expectedIgnored  []string
 		}{
 			{
-				name:          "walk error",
-				fsys:          &mockErrorFS{},
-				expectedError: ErrWalk,
+				name: "nested directories and filtering",
+				fsys: fstest.MapFS{
+					"root.txt":            {Data: []byte("root-content")},
+					"dir1/file1.txt":      {Data: []byte("f1-content")},
+					"dir1/dir2/file2.txt": {Data: []byte("f2-content")},
+					"dir1/ignore.json":    {Data: []byte("ignore-content")},
+					"dir2/ignore.log":     {Data: []byte("ignore-content")},
+				},
+				filter: func(path string) bool {
+					return strings.HasSuffix(path, ".txt")
+				},
+				expectedCompiled: map[string]string{
+					"root.txt":            "root-content",
+					"dir1/file1.txt":      "f1-content",
+					"dir1/dir2/file2.txt": "f2-content",
+				},
+				expectedIgnored: []string{"dir1/ignore.json", "dir2/ignore.log"},
 			},
 			{
-				name: "compile error during all",
-				fsys: fstest.MapFS{
-					"bad.txt": {Data: []byte("some data")},
+				name: "no files in fs",
+				fsys: fstest.MapFS{},
+				filter: func(path string) bool {
+					return true
 				},
-				expectedError: ErrCompile,
+				expectedCompiled: map[string]string{},
+				expectedIgnored:  []string{},
 			},
 		}
 
@@ -369,19 +441,95 @@ func TestRepository_compileAll(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				repo := &Repository[string]{
 					fsys:     tt.fsys,
-					compiler: failCompiler,
-					filter:   mockFilter,
+					compiler: successCompiler,
+					filter:   tt.filter,
 				}
 
-				err := repo.compileAll()
-				if err == nil {
-					t.Fatal("expected error but got nil")
+				if err := repo.compileAll(); err != nil {
+					t.Fatalf("unexpected error: %v", err)
 				}
 
-				if !errors.Is(err, tt.expectedError) {
-					t.Errorf("expected error to wrap %v, got %v", tt.expectedError, err)
+				for path, expectedVal := range tt.expectedCompiled {
+					val, ok := repo.resources.Load(path)
+					if !ok {
+						t.Errorf("expected file %s to be compiled, but it was not", path)
+						continue
+					}
+					if gotVal := val.(string); gotVal != expectedVal {
+						t.Errorf("file %s: got %s, want %s", path, gotVal, expectedVal)
+					}
+				}
+
+				for _, path := range tt.expectedIgnored {
+					if _, ok := repo.resources.Load(path); ok {
+						t.Errorf("expected file %s to be ignored, but it was compiled", path)
+					}
 				}
 			})
 		}
 	})
+
+	t.Run("Failure", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			fsys     fs.FS
+			compiler func([]byte) (string, error)
+			expected error
+		}{
+			{
+				name:     "walk error",
+				fsys:     &mockErrorFS{},
+				compiler: successCompiler,
+				expected: ErrWalk,
+			},
+			{
+				name: "compile error during all",
+				fsys: fstest.MapFS{
+					"bad.txt": {Data: []byte("data")},
+				},
+				compiler: failCompiler,
+				expected: ErrCompile,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				repo := &Repository[string]{
+					fsys:     tt.fsys,
+					compiler: tt.compiler,
+					filter:   func(p string) bool { return true },
+				}
+
+				err := repo.compileAll()
+				if !errors.Is(err, tt.expected) {
+					t.Errorf("expected error %v, got %v", tt.expected, err)
+				}
+			})
+		}
+	})
+}
+
+func TestRepository_Concurrency(t *testing.T) {
+	var compileCount int32
+	compiler := func(b []byte) (string, error) {
+		atomic.AddInt32(&compileCount, 1)
+		return string(b), nil
+	}
+	fsys := fstest.MapFS{"shared.txt": {Data: []byte("shared")}}
+	repo, _ := New[string](fsys, compiler, WithMode(Lazy))
+
+	var wg sync.WaitGroup
+	numGoroutines := 100
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = repo.Get("shared.txt")
+		}()
+	}
+	wg.Wait()
+
+	if atomic.LoadInt32(&compileCount) != 1 {
+		t.Errorf("compiler should be called exactly once, got %d", compileCount)
+	}
 }
