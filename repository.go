@@ -19,6 +19,12 @@ var (
 	// runtime compilation is disabled. This typically occurs when Eager mode
 	// is used and the requested resource was not loaded during initialization.
 	ErrNoRuntime = errors.New("no runtime compile")
+
+	// ErrCompile is returned when compiler functions returns error.
+	ErrCompile = errors.New("compiler error")
+
+	// ErrWalk is returned when the repository fails to traverse the filesystem.
+	ErrWalk = errors.New("walk error")
 )
 
 // Mode defines the loading and compilation strategy for the repository.
@@ -145,7 +151,7 @@ func (r *Repository[T]) compile(key string) (T, error) {
 	val, err := r.compiler(data)
 	if err != nil {
 		var zero T
-		return zero, fmt.Errorf("compile %s: %w", key, err)
+		return zero, fmt.Errorf("%w: compile %s: %w", ErrCompile, key, err)
 	}
 
 	r.resources.Store(key, val)
@@ -157,7 +163,7 @@ func (r *Repository[T]) compile(key string) (T, error) {
 func (r *Repository[T]) compileAll() error {
 	return fs.WalkDir(r.fsys, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrWalk, err)
 		}
 
 		if d != nil && d.IsDir() {
