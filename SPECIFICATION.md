@@ -53,7 +53,7 @@ GEMINI.mdを良く読み流れをはずれないようにしてください。
   * `resources`: map[string]T (読み取り専用マップ。Snapshot時に固定)
 
 ### 3.2. repository.go (ルートパッケージ：Repositoryの振る舞い)
-* `NewRepository[T any](loader Loader, compiler Compiler[T]) *Repository[T]`
+* `NewRepository[T any](loader Loader, compiler Compiler[T]) (*Repository[T], error)`
   * 初期状態（空キャッシュ）の `*Repository[T]` を生成するコンストラクタ。内部での暗黙的な型アサーションや自動プリロードは行わない。
 * `Get(ctx context.Context, id string) (T, error)`
   * キャッシュを最優先で検索。ミス時は Loader.Load -> Compiler を経て内部キャッシュ（sync.Map）に格納してから返す（Lazy Load）。並行リクエスト時の重複ロードを防ぐため、Go言語のベストプラクティスである準標準パッケージ `golang.org/x/sync/singleflight` を使用した排他制御を実装すること。
