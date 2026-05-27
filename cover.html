@@ -1,0 +1,316 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>compiledrepo: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/dairyo/compiledrepo/repository.go (98.2%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package compiledrepo
+
+import (
+        "errors"
+        "fmt"
+        "io/fs"
+        "path"
+        "sync"
+)
+
+var (
+        // ErrNotFound is returned when a resource does not exist in the filesystem.
+        ErrNotFound = errors.New("resource not found")
+
+        // ErrFiltered is returned when a resource is rejected by the PathFilter.
+        ErrFiltered = errors.New("resource filtered")
+
+        // ErrNoRuntime is returned when a resource is missing from the cache and
+        // runtime compilation is disabled. This typically occurs when Eager mode
+        // is used and the requested resource was not loaded during initialization.
+        ErrNoRuntime = errors.New("no runtime compile")
+
+        // ErrCompile is returned when compiler functions returns error.
+        ErrCompile = errors.New("compiler error")
+
+        // ErrWalk is returned when the repository fails to traverse the filesystem.
+        ErrWalk = errors.New("walk error")
+)
+
+// Mode defines the loading and compilation strategy for the repository.
+type Mode int
+
+const (
+        // Eager compiles all resources during initialization. Runtime compilation is disabled.
+        Eager Mode = iota
+        // Lazy defers compilation until a resource is first requested. Runtime compilation is enabled.
+        Lazy
+        // EagerWithRuntime compiles all resources during initialization and also allows
+        // compilation of new resources at runtime.
+        EagerWithRuntime
+)
+
+// PathNormalizer is a function type that converts an external ID into an internal file path.
+type PathNormalizer func(id string) string
+
+// PathFilter is a function type that determines whether a given path should be managed by the repository.
+type PathFilter func(path string) bool
+
+// Repository manages compiled resources of type T.
+// It provides thread-safe access and supports both eager and lazy compilation strategies.
+type Repository[T any] struct {
+        // fsys is the source filesystem.
+        fsys fs.FS
+        // compiler transforms raw bytes into the compiled type T.
+        compiler func([]byte) (T, error)
+        // normalizer resolves IDs to clean paths.
+        normalizer PathNormalizer
+        // filter restricts which files are compiled into the repository.
+        filter PathFilter
+        // resources stores compiled instances for fast retrieval.
+        resources sync.Map
+        // mu protects the compilation process from race conditions during concurrent Get calls.
+        mu sync.Mutex
+        // runtime enables on-demand compilation during Get calls.
+        runtime bool
+}
+
+// options holds the configuration for the Repository.
+type options struct {
+        normalizer PathNormalizer
+        filter     PathFilter
+        mode       Mode
+}
+
+// Option defines a functional configuration for the Repository.
+type Option func(*options)
+
+// WithNormalizer sets a custom rule for path normalization.
+// By default, the ID is used directly as the path.
+func WithNormalizer(n PathNormalizer) Option <span class="cov8" title="1">{
+        return func(o *options) </span><span class="cov8" title="1">{ o.normalizer = n }</span>
+}
+
+// WithFilter sets a filter to limit which files are managed by the repository.
+func WithFilter(f PathFilter) Option <span class="cov8" title="1">{
+        return func(o *options) </span><span class="cov8" title="1">{ o.filter = f }</span>
+}
+
+// WithMode sets the compilation strategy for the repository.
+func WithMode(m Mode) Option <span class="cov8" title="1">{
+        return func(o *options) </span><span class="cov8" title="1">{ o.mode = m }</span>
+}
+
+// New creates and initializes a new Repository for type T.
+// By default, it performs eager compilation (compiling all files in the FS) without runtime compilation.
+func New[T any](fsys fs.FS, compiler func([]byte) (T, error), opts ...Option) (*Repository[T], error) <span class="cov8" title="1">{
+        if fsys == nil || compiler == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("fsys and compiler are required")
+        }</span>
+
+        <span class="cov8" title="1">cfg := options{
+                normalizer: func(id string) string </span><span class="cov8" title="1">{ return id }</span>,
+                filter:     nil,
+                mode:       Eager,
+        }
+
+        <span class="cov8" title="1">for _, opt := range opts </span><span class="cov8" title="1">{
+                opt(&amp;cfg)
+        }</span>
+
+        <span class="cov8" title="1">var lazy, runtime bool
+        switch cfg.mode </span>{
+        case Eager:<span class="cov8" title="1">
+                lazy, runtime = false, false</span>
+        case Lazy:<span class="cov8" title="1">
+                lazy, runtime = true, true</span>
+        case EagerWithRuntime:<span class="cov8" title="1">
+                lazy, runtime = false, true</span>
+        default:<span class="cov8" title="1">
+                return nil, fmt.Errorf("invalid mode: %v", cfg.mode)</span>
+        }
+
+        <span class="cov8" title="1">repo := &amp;Repository[T]{
+                fsys:       fsys,
+                compiler:   compiler,
+                normalizer: cfg.normalizer,
+                filter:     cfg.filter,
+                runtime:    runtime,
+        }
+
+        // Perform eager compilation: Mutex is not required here as the instance is not
+        // yet exposed to concurrent access during initialization.
+        if !lazy </span><span class="cov8" title="1">{
+                if err := repo.compileAll(); err != nil </span><span class="cov8" title="1">{
+                        return nil, fmt.Errorf("eager compilation failed: %w", err)
+                }</span>
+        }
+        <span class="cov8" title="1">return repo, nil</span>
+}
+
+// compile handles the internal logic of reading, compiling, and caching a resource.
+// This method is not thread-safe; callers must ensure appropriate locking.
+func (r *Repository[T]) compile(key string) (T, error) <span class="cov8" title="1">{
+        data, err := fs.ReadFile(r.fsys, key)
+        if err != nil </span><span class="cov8" title="1">{
+                var zero T
+                return zero, fmt.Errorf("%w: %s", ErrNotFound, key)
+        }</span>
+
+        <span class="cov8" title="1">val, err := r.compiler(data)
+        if err != nil </span><span class="cov8" title="1">{
+                var zero T
+                return zero, fmt.Errorf("%w: compile %s: %w", ErrCompile, key, err)
+        }</span>
+
+        <span class="cov8" title="1">r.resources.Store(key, val)
+        return val, nil</span>
+}
+
+// compileAll scans the filesystem and compiles all files that pass the filter.
+// Designed for use during initialization or controlled maintenance tasks.
+func (r *Repository[T]) compileAll() error <span class="cov8" title="1">{
+        return fs.WalkDir(r.fsys, ".", func(p string, d fs.DirEntry, err error) error </span><span class="cov8" title="1">{
+                if err != nil </span><span class="cov8" title="1">{
+                        return fmt.Errorf("%w: %w", ErrWalk, err)
+                }</span>
+
+                <span class="cov8" title="1">if d != nil &amp;&amp; d.IsDir() </span><span class="cov8" title="1">{
+                        return nil
+                }</span>
+
+                <span class="cov8" title="1">if r.filter != nil &amp;&amp; !r.filter(p) </span><span class="cov8" title="1">{
+                        return nil
+                }</span>
+
+                <span class="cov8" title="1">_, err = r.compile(path.Clean(p))
+                return err</span>
+        })
+}
+
+// Get returns the compiled resource associated with the given ID.
+// It is thread-safe and utilizes double-checked locking to prevent redundant
+// compilation for the same resource.
+func (r *Repository[T]) Get(id string) (T, error) <span class="cov8" title="1">{
+        key := path.Clean(r.normalizer(id))
+
+        if r.filter != nil &amp;&amp; !r.filter(key) </span><span class="cov8" title="1">{
+                var zero T
+                return zero, fmt.Errorf("%w: %s", ErrFiltered, id)
+        }</span>
+
+        // Fast Path: Return the cached resource without acquiring the lock.
+        <span class="cov8" title="1">if val, ok := r.resources.Load(key); ok </span><span class="cov8" title="1">{
+                return val.(T), nil
+        }</span>
+
+        // Check if runtime compilation is permitted.
+        <span class="cov8" title="1">if !r.runtime </span><span class="cov8" title="1">{
+                var zero T
+                return zero, fmt.Errorf("%w: %s", ErrNoRuntime, key)
+        }</span>
+
+        // Slow Path: Protect the compilation process with a Mutex.
+        <span class="cov8" title="1">r.mu.Lock()
+        defer r.mu.Unlock()
+
+        // Double-checked locking: Verify if another goroutine compiled it while waiting for the lock.
+        if val, ok := r.resources.Load(key); ok </span><span class="cov0" title="0">{
+                return val.(T), nil
+        }</span>
+
+        <span class="cov8" title="1">return r.compile(key)</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
