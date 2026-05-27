@@ -22,6 +22,11 @@ func (f *FileLoader) Load(ctx context.Context, id string) ([]byte, error) {
 	return os.ReadFile(filepath.Join(f.rootDir, id))
 }
 
+// stopWalkError is used to stop filepath.WalkDir without returning a real error to the yield function.
+type stopWalkError struct{}
+
+func (e stopWalkError) Error() string { return "stop walking" }
+
 func (f *FileLoader) All(ctx context.Context) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
 		err := filepath.WalkDir(f.rootDir, func(path string, d fs.DirEntry, err error) error {
@@ -49,11 +54,11 @@ func (f *FileLoader) All(ctx context.Context) iter.Seq2[string, error] {
 			rel = filepath.ToSlash(rel)
 
 			if !yield(rel, nil) {
-				return filepath.SkipDir // Or just return error to stop walking
+				return stopWalkError{}
 			}
 			return nil
 		})
-		if err != nil {
+		if err != nil && err != (stopWalkError{}) {
 			yield("", err)
 		}
 	}

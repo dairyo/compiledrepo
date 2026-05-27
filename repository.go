@@ -62,6 +62,13 @@ func (r *Repository[T]) Get(ctx context.Context, id string) (T, error) {
 // Preload explicitly fills the cache by iterating over the provided Preloader.
 func (r *Repository[T]) Preload(ctx context.Context, p Preloader) error {
 	for id, err := range p.All(ctx) {
+		// Explicitly check for context cancellation to stop preloading immediately
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		if err != nil {
 			return err
 		}

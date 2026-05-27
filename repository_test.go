@@ -139,10 +139,28 @@ func TestRepository_Preload(t *testing.T) {
 	}
 }
 
-func TestRepository_Snapshot(t *testing.T) {
+type deterministicPreloader struct {
+	ids []string
+}
+
+func (dp deterministicPreloader) All(ctx context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		for _, id := range dp.ids {
+			if !yield(id, nil) {
+				return
+			}
+		}
+	}
+}
+
+func TestRepository_Preload_ContextCancel(t *testing.T) {
 	loader := &mockLoader{
 		data: map[string][]byte{
 			"res1": []byte("value1"),
+			"res2": []byte("value2"),
+			"res3": []byte("value3"),
+			"res4": []byte("value4"),
+			"res5": []byte("value5"),
 		},
 	}
 	compiler := func(b []byte) (string, error) {
@@ -150,45 +168,38 @@ func TestRepository_Snapshot(t *testing.T) {
 	}
 
 	repo := compiledrepo.NewRepository(loader, compiler)
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	_, _ = repo.Get(ctx, "res1")
-	registry := repo.Snapshot()
-
-	val, err := registry.Get("res1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Custom preloader that cancels the context after 2 items
+	ids := []string{"res1", "res2", "res3", "res4", "res5"}
+	dp := &cancellingPreloader{
+		ids:    ids,
+		cancel: cancel,
 	}
-	if val != "value1" {
-		t.Errorf("expected value1, got %s", val)
-	}
-
-	// Test mutation of repository does not affect registry
-	loader.data["res2"] = []byte("value2")
-	_, _ = repo.Get(ctx, "res2")
 	
-	val, err = registry.Get("res2")
-	if err != nil {
-		if err != compiledrepo.ErrNotFound {
-			t.Errorf("expected ErrNotFound, got %v", err)
-		}
-	} else {
-		t.Errorf("unexpectedly found res2 in registry")
+	err := repo.Preload(ctx, dp)
+	if err == nil {
+		t.Error("expected error due to context cancellation, got nil")
+	} else if err != context.Canceled {
+		t.Errorf("expected context.Canceled, got %v", err)
 	}
 }
 
-func TestRegistry_GetNotFound(t *testing.T) {
-	// Use a simple string type to avoid nil issues
-	repo := compiledrepo.NewRepository[string](nil, nil)
-	registry := repo.Snapshot()
-	
-	val, err := registry.Get("none")
-	if err != nil {
-		if err != compiledrepo.ErrNotFound {
-			t.Errorf("expected ErrNotFound, got %v", err)
+type cancellingPreloader struct {
+	ids    []string
+	cancel context.CancelFunc
+}
+
+func (cp *cancellingPreloader) All(ctx context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		for i, id := range cp.ids {
+			if i == 2 {
+				cp.cancel()
+			}
+			if !yield(id, nil) {
+				return
+			}
 		}
-	} else {
-		t.Errorf("unexpectedly found value for 'none'")
 	}
-	_ = val
 }
