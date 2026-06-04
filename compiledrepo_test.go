@@ -34,54 +34,96 @@ func (m *MockPreloader) All(ctx context.Context) func(func(string, error) bool) 
 	}
 }
 
-func TestInterfaces(t *testing.T) {
-	t.Run("LoaderInterface", func(t *testing.T) {
-		loader := &MockLoader{
-			data: map[string][]byte{"test": []byte("value")},
+func TestMockLoader_Load(t *testing.T) {
+	loader := &MockLoader{
+		data: map[string][]byte{"test": []byte("value")},
+	}
+	ctx := context.Background()
+
+	t.Run("SuccessCases", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			id      string
+			wantVal string
+		}{
+			{"LoadExisting", "test", "value"},
 		}
-		ctx := context.Background()
-
-		t.Run("Success", func(t *testing.T) {
-			val, err := loader.Load(ctx, "test")
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-			if string(val) != "value" {
-				t.Errorf("expected 'value', got %s", string(val))
-			}
-		})
-
-		t.Run("NotFound", func(t *testing.T) {
-			_, err := loader.Load(ctx, "missing")
-			if !errors.Is(err, ErrNotFound) {
-				t.Errorf("expected ErrNotFound, got %v", err)
-			}
-		})
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				val, err := loader.Load(ctx, tt.id)
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if string(val) != tt.wantVal {
+					t.Errorf("expected %s, got %s", tt.wantVal, string(val))
+				}
+			})
+		}
 	})
 
-	t.Run("CompilerType", func(t *testing.T) {
-		compiler := func(b []byte) (int, error) {
-			if len(b) == 0 {
-				return 0, errors.New("empty data")
-			}
-			return len(b), nil
+	t.Run("ErrorCases", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			id      string
+			wantErr error
+		}{
+			{"LoadMissing", "missing", ErrNotFound},
 		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := loader.Load(ctx, tt.id)
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("expected %v, got %v", tt.wantErr, err)
+				}
+			})
+		}
+	})
+}
 
-		t.Run("Success", func(t *testing.T) {
-			val, err := compiler([]byte("hello"))
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-			if val != 5 {
-				t.Errorf("expected 5, got %d", val)
-			}
-		})
+func TestCompilerType(t *testing.T) {
+	compiler := func(b []byte) (int, error) {
+		if len(b) == 0 {
+			return 0, errors.New("empty data")
+		}
+		return len(b), nil
+	}
 
-		t.Run("Error", func(t *testing.T) {
-			_, err := compiler([]byte{})
-			if err == nil {
-				t.Error("expected error, got nil")
-			}
-		})
+	t.Run("SuccessCases", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input []byte
+			want  int
+		}{
+			{"ValidInput", []byte("hello"), 5},
+			{"SingleChar", []byte("a"), 1},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				val, err := compiler(tt.input)
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if val != tt.want {
+					t.Errorf("expected %d, got %d", tt.want, val)
+				}
+			})
+		}
+	})
+
+	t.Run("ErrorCases", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input []byte
+		}{
+			{"EmptyInput", []byte{}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := compiler(tt.input)
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+			})
+		}
 	})
 }
