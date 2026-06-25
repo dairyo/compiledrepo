@@ -1,6 +1,8 @@
 package compiledrepo
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"sync"
 
@@ -22,6 +24,55 @@ func NewRepository[K comparable, R io.ReadCloser, V any](opener Opener[K, R], co
 	return &Repository[K, R, V]{
 		opener:   opener,
 		compiler: compiler,
-		// cache and sfGroup are zero-value initialized, which is correct for sync.Map and singleflight.Group.
 	}
+}
+
+// Get retrieves a compiled resource associated with the given key.
+// It first checks the cache, then uses request coalescing to ensure only one
+// compilation process occurs for the same key concurrently.
+func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (v V, err error) {
+	// Panic recovery to ensure the repository doesn't crash the application
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("panic recovered during Get: %v", p)
+		}
+	}()
+
+	// 1. Cache Check
+	if val, ok := r.cache.Load(key); ok {
+		return val.(V), nil
+	}
+
+	// 2. Request Coalescing
+	// singleflight.Group.Do requires a string key.
+	keyStr := fmt.Sprintf("%v", key)
+	res, sfErr, _ := r.sfGroup.Do(keyStr, func() (any, error) {
+		// Double check cache inside the coalescing function to avoid redundant work
+		if val, ok := r.cache.Load(key); ok {
+			return val, nil
+		}
+
+		// a. Open
+		reader, err := r.opener.Open(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrOpen, err)
+		}
+		defer reader.Close()
+
+		// b. Compile
+		compiled, err := r.compiler.Compile(ctx, reader)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrCompile, err)
+		}
+
+		// c. Cache
+		r.cache.Store(key, compiled)
+		return compiled, nil
+	})
+
+	if sfErr != nil {
+		return v, sfErr
+	}
+
+	return res.(V), nil
 }

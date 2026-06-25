@@ -2,57 +2,174 @@ package compiledrepo
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
-// RepoMockOpener is a simple mock for testing Repository initialization.
-type RepoMockOpener[K comparable, R io.ReadCloser] struct{}
-
-func (m *RepoMockOpener[K, R]) Open(ctx context.Context, key K) (R, error) {
-	var zero R
-	return zero, nil
+// MockReader is a simple ReadCloser for testing.
+type MockReader struct {
+	io.Reader
+	closed bool
 }
 
-// RepoMockCompiler is a simple mock for testing Repository initialization.
-type RepoMockCompiler[R io.ReadCloser, V any] struct{}
-
-func (m *RepoMockCompiler[R, V]) Compile(ctx context.Context, r R) (V, error) {
-	var zero V
-	return zero, nil
+func (m *MockReader) Close() error {
+	m.closed = true
+	return nil
 }
 
-func TestNewRepository(t *testing.T) {
+func (m *MockReader) IsClosed() bool {
+	return m.closed
+}
+
+func TestRepository_Get(t *testing.T) {
+	ctx := context.Background()
+
 	t.Run("SuccessCases", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockOpener := NewMockOpener[string, *MockReader](ctrl)
+		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
+
+		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+
+		key := "test-key"
+		want := "compiled-value"
+		reader := &MockReader{}
+
+		// First access: should trigger Open and Compile
+		mockOpener.EXPECT().Open(ctx, key).Return(reader, nil).Times(1)
+		mockCompiler.EXPECT().Compile(ctx, reader).Return(want, nil).Times(1)
+
+		got, err := repo.Get(ctx, key)
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+		assert.True(t, reader.IsClosed())
+
+		// Second access: should return from cache, NO Open or Compile calls
+		got2, err2 := repo.Get(ctx, key)
+		require.NoError(t, err2)
+		assert.Equal(t, want, got2)
+	})
+
+	t.Run("ConcurrentRequests", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockOpener := NewMockOpener[string, *MockReader](ctrl)
+		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
+
+		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+
+		key := "concurrent-key"
+		want := "concurrent-value"
+		reader := &MockReader{}
+
+		// Even with concurrent requests, Open and Compile should only be called once
+		mockOpener.EXPECT().Open(ctx, key).Return(reader, nil).Times(1)
+		mockCompiler.EXPECT().Compile(ctx, reader).Return(want, nil).Times(1)
+
+		var wg sync.WaitGroup
+		numRequests := 10
+		results := make(chan string, numRequests)
+		errs := make(chan error, numRequests)
+
+		for i := 0; i < numRequests; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				val, err := repo.Get(ctx, key)
+				if err != nil {
+					errs <- err
+				} else {
+					results <- val
+				}
+			}()
+		}
+
+		wg.Wait()
+		close(results)
+		close(errs)
+
+		assert.Equal(t, 0, len(errs), "should have no errors")
+		assert.Equal(t, numRequests, len(results))
+		for res := range results {
+			assert.Equal(t, want, res)
+		}
+	})
+
+	t.Run("ErrorCases", func(t *testing.T) {
 		tests := []struct {
-			name string
+			name       string
+			key        string
+			setupMocks func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string])
+			wantErr    error
+			wantErrMsg string
 		}{
 			{
-				name: "InitializeWithMocks",
+				name: "Open failure returns ErrOpen",
+				key:  "err-key-open",
+				setupMocks: func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string]) {
+					op.EXPECT().Open(ctx, "err-key-open").Return((*MockReader)(nil), fmt.Errorf("disk error")).Times(1)
+				},
+				wantErr:    ErrOpen,
+				wantErrMsg: "failed to open resource: disk error",
+			},
+			{
+				name: "Compile failure returns ErrCompile",
+				key:  "err-key-compile",
+				setupMocks: func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string]) {
+					reader := &MockReader{}
+					op.EXPECT().Open(ctx, "err-key-compile").Return(reader, nil).Times(1)
+					cp.EXPECT().Compile(ctx, reader).Return("", fmt.Errorf("syntax error")).Times(1)
+				},
+				wantErr:    ErrCompile,
+				wantErrMsg: "failed to compile: syntax error",
 			},
 		}
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				opener := &RepoMockOpener[string, io.ReadCloser]{}
-				compiler := &RepoMockCompiler[io.ReadCloser, string]{}
+				ctrl := gomock.NewController(t)
+				defer ctrl.Finish()
 
-				repo := NewRepository(opener, compiler)
+				mockOpener := NewMockOpener[string, *MockReader](ctrl)
+				mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
+				repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
 
-				if repo == nil {
-					t.Fatal("expected repository instance, got nil")
-				}
-				if repo.opener != opener {
-					t.Errorf("expected opener %v, got %v", opener, repo.opener)
-				}
-				if repo.compiler != compiler {
-					t.Errorf("expected compiler %v, got %v", compiler, repo.compiler)
-				}
+				tt.setupMocks(mockOpener, mockCompiler)
+
+				_, err := repo.Get(ctx, tt.key)
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Contains(t, err.Error(), tt.wantErrMsg)
 			})
 		}
 	})
 
-	t.Run("ErrorCases", func(t *testing.T) {
-		// NewRepository does not currently return an error.
+	t.Run("PanicRecovery", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockOpener := NewMockOpener[string, *MockReader](ctrl)
+		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
+
+		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+
+		key := "panic-key"
+
+		mockOpener.EXPECT().Open(ctx, key).DoAndReturn(func(ctx context.Context, key string) (*MockReader, error) {
+			panic("something went wrong")
+		})
+
+		_, err := repo.Get(ctx, key)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "panic recovered during Get: something went wrong")
 	})
 }
