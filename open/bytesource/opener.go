@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/dairyo/compiledrepo"
 )
@@ -20,9 +21,9 @@ func NewOpener[K comparable](store map[K][]byte) *Opener[K] {
 	}
 }
 
-// Open retrieves the data associated with the key and returns it as a bytes.Reader.
+// Open retrieves the data associated with the key and returns it as an io.ReadCloser.
 // It returns an error wrapped with compiledrepo.ErrOpen if the key is not found.
-func (o *Opener[K]) Open(ctx context.Context, key K) (*bytes.Reader, error) {
+func (o *Opener[K]) Open(ctx context.Context, key K) (io.ReadCloser, error) {
 	// Check for context cancellation before starting the operation.
 	select {
 	case <-ctx.Done():
@@ -35,5 +36,5 @@ func (o *Opener[K]) Open(ctx context.Context, key K) (*bytes.Reader, error) {
 		return nil, fmt.Errorf("%w: key not found", compiledrepo.ErrOpen)
 	}
 
-	return bytes.NewReader(data), nil
+	return io.NopCloser(bytes.NewReader(data)), nil
 }
