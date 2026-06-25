@@ -25,9 +25,13 @@ func TestRegistry_Get(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				reg := NewRegistry[string, string]()
-				reg.Set("key1", "value1")
-				reg.Set("key2", "value2")
+				// Initialize Registry directly since NewRegistry and Set are removed for immutability.
+				reg := &Registry[string, string]{
+					values: map[string]string{
+						"key1": "value1",
+						"key2": "value2",
+					},
+				}
 
 				val, ok := reg.Get(tt.key)
 				if !ok {
@@ -53,8 +57,11 @@ func TestRegistry_Get(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				reg := NewRegistry[string, string]()
-				reg.Set("existing", "value")
+				reg := &Registry[string, string]{
+					values: map[string]string{
+						"existing": "value",
+					},
+				}
 
 				val, ok := reg.Get(tt.key)
 				if ok {
