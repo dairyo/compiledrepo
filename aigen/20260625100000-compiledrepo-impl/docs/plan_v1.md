@@ -14,9 +14,9 @@
 - [x] Sub-4: `open/file/opener.go` における `Opener.Open` の実装とテスト (依存: Sub-1, Sub-2) [8994d23]
 - [x] Sub-5: `open/bytesource/opener.go` における `Opener.Open` の実装とテスト (依存: Sub-1, Sub-2) [6f9b473]
 - [x] Sub-6: `open/stringsource/opener.go` における `Opener.Open` の実装とテスト (依存: Sub-1, Sub-2) [f3cabe7]
-- [x] Sub-7: `compile/jsonschema/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2) [c24463e]
-- [x] Sub-8: `compile/adapters/bytes/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2) [d310c31]
-- [x] Sub-9: `compile/adapters/string/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2) [25abeda]
+- [ ] Sub-7: `compile/jsonschema/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2)
+- [ ] Sub-8: `compile/adapters/bytes/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2)
+- [ ] Sub-9: `compile/adapters/string/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2)
 - [ ] Sub-10: `iterate/file/iterator.go` における `KeyIterator.All` の実装とテスト (依存: Sub-1, Sub-2)
 
 ### Level 2: Repository 統合ロジック
