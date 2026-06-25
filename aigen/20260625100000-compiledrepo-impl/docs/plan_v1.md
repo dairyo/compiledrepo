@@ -17,7 +17,7 @@
 - [ ] Sub-7: `compile/jsonschema/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2)
 - [ ] Sub-8: `compile/adapters/bytes/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2)
 - [ ] Sub-9: `compile/adapters/string/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2)
-- [ ] Sub-10: `iterate/file/iterator.go` における `KeyIterator.All` の実装とテスト (依存: Sub-1, Sub-2)
+- [x] Sub-10: `iterate/file/iterator.go` における `KeyIterator.All` の実装とテスト (依存: Sub-1, Sub-2) [8b47f23]
 
 ### Level 2: Repository 統合ロジック
 - [ ] Sub-11: `repository.go` における `Repository` 構造体および `NewRepository` の実装 (依存: Sub-2)
