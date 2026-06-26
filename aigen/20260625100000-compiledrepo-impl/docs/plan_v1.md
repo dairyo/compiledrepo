@@ -21,7 +21,7 @@
 
 ### Level 2: Repository 統合ロジック
 - [x] Sub-11: `repository.go` における `Repository` 構造体および `NewRepository` の実装 (依存: Sub-2) [718f2f2]
-- [x] Sub-12: `repository.go` における `Repository.Get` メソッドの実装とテスト (e8c6e09) (依存: Sub-1, Sub-11)
+- [x] Sub-12: `repository.go` における `Repository.Get` メソッドの実装とテスト [405ebcf] (依存: Sub-1, Sub-11)
 - [ ] Sub-13: `repository.go` における `Repository.Preload` メソッドの実装とテスト (依存: Sub-1, Sub-10, Sub-12)
 - [ ] Sub-14: `repository.go` における `Repository.Snapshot` メソッドの実装とテスト (依存: Sub-3, Sub-11)
 
@@ -41,8 +41,6 @@
     - `Open(ctx context.Context, key K) (R, error)`
 - **`Compiler[R io.ReadCloser, V any]`**:
     - `Compile(ctx context.Context, r R) (V, error) `
-- **`KeyIterator[K comparable]`**:
-    - `All(ctx context.Context) iter.Seq2[K, error]`
 - **設計意図**: 読み込み(Open)と変換(Compile)を分離し、中間型 R を介して型レベルでペアリングさせる。また、リソースの列挙を `KeyIterator` で抽象化し、`Preload` 等のバッチ処理を可能にす る。
 
 ### [Sub-3]: `Registry.Get`
@@ -115,7 +113,7 @@
     - Error: 読み取り失敗またはコンパイル失敗で `ErrCompile` が返ること。
 
 ### [Sub-10]: `file.KeyIterator.All`
-- **シグネチャ**: `func (Iterator) All(ctx context.Context) iter.Seq2[K, error]`
+- **シグネチャ**: `func (Iterator) All(ctx context.Context) iter.Seq2[K, error)`
 - **ロジックステップ**:
     1. 指定ディレクトリ内のファイルを走査する。
     2. `iter.Seq2` 形式で `(key, error)` を順次 yield する。
@@ -145,7 +143,7 @@
     - Success: 2回目以降のアクセスでキャッシュから値が返ること。
     - Success: 同時リクエスト時に `Opener.Open` が1回しか呼ばれないこと（singleflight 検証）。
     - Error: `Open` 失敗時に `ErrOpen` が伝播すること。
-    - Error: `Compile` 失敗時に `ErrCompile` が伝播すること。
+    - Error: `Compile` 失敗時に `ErrCompile` が返ること。
     - Error: 内部で panic 発生時に適切にエラーとして返ること。
 
 ### [Sub-13]: `Repository.Preload`

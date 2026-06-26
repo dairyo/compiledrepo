@@ -16,24 +16,24 @@ func (m *MockReadCloser) Close() error {
 	return nil
 }
 
-// MockOpener implements Opener[string, *MockReadCloser].
-type MockOpener struct{}
+// BasicOpener implements Opener[string, *MockReadCloser].
+type BasicOpener struct{}
 
-func (m *MockOpener) Open(ctx context.Context, key string) (*MockReadCloser, error) {
+func (m *BasicOpener) Open(ctx context.Context, key string) (*MockReadCloser, error) {
 	return &MockReadCloser{}, nil
 }
 
-// MockCompiler implements Compiler[*MockReadCloser, string].
-type MockCompiler struct{}
+// BasicCompiler implements Compiler[*MockReadCloser, string].
+type BasicCompiler struct{}
 
-func (m *MockCompiler) Compile(ctx context.Context, r *MockReadCloser) (string, error) {
+func (m *BasicCompiler) Compile(ctx context.Context, r *MockReadCloser) (string, error) {
 	return "compiled", nil
 }
 
-// MockIterator implements KeyIterator[string].
-type MockIterator struct{}
+// BasicIterator implements KeyIterator[string].
+type BasicIterator struct{}
 
-func (m *MockIterator) All(ctx context.Context) iter.Seq2[string, error] {
+func (m *BasicIterator) All(ctx context.Context) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
 		if !yield("key1", nil) {
 			return
@@ -43,14 +43,14 @@ func (m *MockIterator) All(ctx context.Context) iter.Seq2[string, error] {
 
 func TestInterfaces(t *testing.T) {
 	t.Run("OpenerAssignment", func(t *testing.T) {
-		var _ Opener[string, *MockReadCloser] = &MockOpener{}
+		var _ Opener[string, *MockReadCloser] = &BasicOpener{}
 	})
 
 	t.Run("CompilerAssignment", func(t *testing.T) {
-		var _ Compiler[*MockReadCloser, string] = &MockCompiler{}
+		var _ Compiler[*MockReadCloser, string] = &BasicCompiler{}
 	})
 
 	t.Run("IteratorAssignment", func(t *testing.T) {
-		var _ KeyIterator[string] = &MockIterator{}
+		var _ KeyIterator[string] = &BasicIterator{}
 	})
 }
