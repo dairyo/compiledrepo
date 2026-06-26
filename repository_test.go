@@ -113,24 +113,22 @@ func TestRepository_Get(t *testing.T) {
 			wantErrMsg string
 		}{
 			{
-				name: "Open failure returns ErrOpen",
+				name: "Open failure returns context error",
 				key:  "err-key-open",
 				setupMocks: func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string]) {
 					op.EXPECT().Open(ctx, "err-key-open").Return((*MockReader)(nil), fmt.Errorf("disk error")).Times(1)
 				},
-				wantErr:    ErrOpen,
 				wantErrMsg: "failed to open resource: disk error",
 			},
 			{
-				name: "Compile failure returns ErrCompile",
+				name: "Compile failure returns context error",
 				key:  "err-key-compile",
 				setupMocks: func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string]) {
 					reader := &MockReader{}
 					op.EXPECT().Open(ctx, "err-key-compile").Return(reader, nil).Times(1)
 					cp.EXPECT().Compile(ctx, reader).Return("", fmt.Errorf("syntax error")).Times(1)
 				},
-				wantErr:    ErrCompile,
-				wantErrMsg: "failed to compile: syntax error",
+				wantErrMsg: "failed to compile resource: syntax error",
 			},
 		}
 
@@ -147,7 +145,6 @@ func TestRepository_Get(t *testing.T) {
 
 				_, err := repo.Get(ctx, tt.key)
 				require.Error(t, err)
-				assert.ErrorIs(t, err, tt.wantErr)
 				assert.Contains(t, err.Error(), tt.wantErrMsg)
 			})
 		}

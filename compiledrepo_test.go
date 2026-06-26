@@ -16,20 +16,6 @@ func (m *MockReadCloser) Close() error {
 	return nil
 }
 
-// MockOpener implements Opener[string, *MockReadCloser].
-type MockOpener struct{}
-
-func (m *MockOpener) Open(ctx context.Context, key string) (*MockReadCloser, error) {
-	return &MockReadCloser{}, nil
-}
-
-// MockCompiler implements Compiler[*MockReadCloser, string].
-type MockCompiler struct{}
-
-func (m *MockCompiler) Compile(ctx context.Context, r *MockReadCloser) (string, error) {
-	return "compiled", nil
-}
-
 // MockIterator implements KeyIterator[string].
 type MockIterator struct{}
 
@@ -43,11 +29,11 @@ func (m *MockIterator) All(ctx context.Context) iter.Seq2[string, error] {
 
 func TestInterfaces(t *testing.T) {
 	t.Run("OpenerAssignment", func(t *testing.T) {
-		var _ Opener[string, *MockReadCloser] = &MockOpener{}
+		var _ Opener[string, *MockReadCloser] = &MockOpener[string, *MockReadCloser]{}
 	})
 
 	t.Run("CompilerAssignment", func(t *testing.T) {
-		var _ Compiler[*MockReadCloser, string] = &MockCompiler{}
+		var _ Compiler[*MockReadCloser, string] = &MockCompiler[*MockReadCloser, string]{}
 	})
 
 	t.Run("IteratorAssignment", func(t *testing.T) {

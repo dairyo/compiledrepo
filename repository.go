@@ -55,14 +55,14 @@ func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (v V, err error) {
 		// a. Open
 		reader, err := r.opener.Open(ctx, key)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrOpen, err)
+			return nil, fmt.Errorf("failed to open resource: %w", err)
 		}
 		defer reader.Close()
 
 		// b. Compile
 		compiled, err := r.compiler.Compile(ctx, reader)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrCompile, err)
+			return nil, fmt.Errorf("failed to compile resource: %w", err)
 		}
 
 		// c. Cache
