@@ -227,6 +227,7 @@ func TestRepository_Preload(t *testing.T) {
 			iterErr    error
 			setupMocks func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string], keys []string)
 			wantErrMsg string
+			useNilIter bool
 		}{
 			{
 				name:    "Iterator returns error",
@@ -247,6 +248,11 @@ func TestRepository_Preload(t *testing.T) {
 				},
 				wantErrMsg: "preload failed for key k1: failed to compile resource: compile error",
 			},
+			{
+				name:       "Nil iterator returns error",
+				useNilIter: true,
+				wantErrMsg: "iterator error: iterator is nil",
+			},
 		}
 
 		for _, tt := range tests {
@@ -258,7 +264,10 @@ func TestRepository_Preload(t *testing.T) {
 				mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
 				repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
 
-				it := &MockKeyIterator[string]{keys: tt.keys, err: tt.iterErr}
+				var it KeyIterator[string]
+				if !tt.useNilIter {
+					it = &MockKeyIterator[string]{keys: tt.keys, err: tt.iterErr}
+				}
 				if tt.setupMocks != nil {
 					tt.setupMocks(mockOpener, mockCompiler, tt.keys)
 				}

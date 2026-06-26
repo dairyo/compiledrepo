@@ -81,6 +81,9 @@ func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (v V, err error) {
 // It iterates through all keys and calls Get for each. If any error occurs during
 // iteration or retrieval, Preload stops and returns the error.
 func (r *Repository[K, R, V]) Preload(ctx context.Context, it KeyIterator[K]) error {
+	if it == nil {
+		return fmt.Errorf("%w: iterator is nil", ErrIterator)
+	}
 	for key, err := range it.All(ctx) {
 		if err != nil {
 			return fmt.Errorf("preload iteration failed: %w", err)
