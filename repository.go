@@ -102,3 +102,16 @@ func (r *Repository[K, R, V]) Preload(ctx context.Context, it KeyIterator[K]) er
 	}
 	return nil
 }
+
+// Snapshot creates an immutable snapshot of the current repository cache.
+// The returned Registry represents the state of the cache at the time of the call.
+func (r *Repository[K, R, V]) Snapshot() Registry[K, V] {
+	snapshotMap := make(map[K]V)
+	r.cache.Range(func(key, value any) bool {
+		snapshotMap[key.(K)] = value.(V)
+		return true
+	})
+	return Registry[K, V]{
+		values: snapshotMap,
+	}
+}
