@@ -2,8 +2,10 @@ package compiledrepo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"sync"
 	"testing"
 
@@ -25,6 +27,22 @@ func (m *MockReader) Close() error {
 
 func (m *MockReader) IsClosed() bool {
 	return m.closed
+}
+
+// MockKeyIterator implements KeyIterator for testing.
+type MockKeyIterator[K comparable] struct {
+	keys []K
+	err  error
+}
+
+func (m *MockKeyIterator[K]) All(ctx context.Context) iter.Seq2[K, error] {
+	return func(yield func(K, error) bool) {
+		for _, k := range m.keys {
+			if !yield(k, m.err) {
+				return
+			}
+		}
+	}
 }
 
 func TestRepository_Get(t *testing.T) {
@@ -169,4 +187,137 @@ func TestRepository_Get(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "panic recovered during Get: something went wrong")
 	})
+}
+
+func TestRepository_Preload(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("SuccessCases", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockOpener := NewMockOpener[string, *MockReader](ctrl)
+		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
+		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+
+		keys := []string{"k1", "k2", "k3"}
+		it := &MockKeyIterator[string]{keys: keys}
+
+		for _, k := range keys {
+			reader := &MockReader{}
+			mockOpener.EXPECT().Open(ctx, k).Return(reader, nil).Times(1)
+			mockCompiler.EXPECT().Compile(ctx, reader).Return("val-"+k, nil).Times(1)
+		}
+
+		err := repo.Preload(ctx, it)
+		require.NoError(t, err)
+
+		// Verify all are cached
+		for _, k := range keys {
+			val, err := repo.Get(ctx, k)
+			require.NoError(t, err)
+			assert.Equal(t, "val-"+k, val)
+		}
+	})
+
+	t.Run("ErrorCases", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			keys       []string
+			iterErr    error
+			setupMocks func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string], keys []string)
+			wantErrMsg string
+		}{
+			{
+				name:    "Iterator returns error",
+				keys:    []string{"k1", "k2"},
+				iterErr: errors.New("iterator failure"),
+				setupMocks: func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string], keys []string) {
+					// Should not be called or only called until error
+				},
+				wantErrMsg: "preload iteration failed: iterator failure",
+			},
+			{
+				name: "Get returns error for a key",
+				keys: []string{"k1", "k2"},
+				setupMocks: func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string], keys []string) {
+					reader := &MockReader{}
+					op.EXPECT().Open(ctx, "k1").Return(reader, nil).Times(1)
+					cp.EXPECT().Compile(ctx, reader).Return("", fmt.Errorf("compile error")).Times(1)
+				},
+				wantErrMsg: "preload failed for key k1: failed to compile resource: compile error",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				defer ctrl.Finish()
+
+				mockOpener := NewMockOpener[string, *MockReader](ctrl)
+				mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
+				repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+
+				it := &MockKeyIterator[string]{keys: tt.keys, err: tt.iterErr}
+				if tt.setupMocks != nil {
+					tt.setupMocks(mockOpener, mockCompiler, tt.keys)
+				}
+
+				err := repo.Preload(ctx, it)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrMsg)
+			})
+		}
+	})
+
+	t.Run("ContextCancellation", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockOpener := NewMockOpener[string, *MockReader](ctrl)
+		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
+		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+
+		cancelCtx, cancel := context.WithCancel(ctx)
+
+		keys := []string{"k1", "k2", "k3"}
+
+		// Setup: k1 succeeds, then cancel context
+		reader1 := &MockReader{}
+		mockOpener.EXPECT().Open(cancelCtx, "k1").Return(reader1, nil).Times(1)
+		mockCompiler.EXPECT().Compile(cancelCtx, reader1).Return("val1", nil).Times(1)
+
+		// We can't easily cancel exactly between iterations in this simple MockKeyIterator
+		// unless we add a hook. Let's use a custom iterator.
+		customIt := &customIterator{
+			keys: keys,
+			onNext: func(k string) {
+				if k == "k1" {
+					cancel()
+				}
+			},
+		}
+
+		err := repo.Preload(cancelCtx, customIt)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, context.Canceled))
+	})
+}
+
+type customIterator struct {
+	keys   []string
+	onNext func(string)
+}
+
+func (c *customIterator) All(ctx context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		for _, k := range c.keys {
+			if c.onNext != nil {
+				c.onNext(k)
+			}
+			if !yield(k, nil) {
+				return
+			}
+		}
+	}
 }

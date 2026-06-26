@@ -76,3 +76,26 @@ func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (v V, err error) {
 
 	return res.(V), nil
 }
+
+// Preload populates the cache with resources whose keys are provided by the KeyIterator.
+// It iterates through all keys and calls Get for each. If any error occurs during
+// iteration or retrieval, Preload stops and returns the error.
+func (r *Repository[K, R, V]) Preload(ctx context.Context, it KeyIterator[K]) error {
+	for key, err := range it.All(ctx) {
+		if err != nil {
+			return fmt.Errorf("preload iteration failed: %w", err)
+		}
+
+		if _, err := r.Get(ctx, key); err != nil {
+			return fmt.Errorf("preload failed for key %v: %w", key, err)
+		}
+
+		// Check for context cancellation to ensure responsiveness
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+	}
+	return nil
+}
