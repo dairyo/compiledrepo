@@ -21,7 +21,7 @@
 
 ### Level 2: Repository 統合ロジック
 - [x] Sub-11: `repository.go` における `Repository` 構造体および `NewRepository` の実装 (依存: Sub-2) [718f2f2]
-- [ ] Sub-12: `repository.go` における `Repository.Get` メソッドの実装とテスト (依存: Sub-1, Sub-11)
+- [x] Sub-12: `repository.go` における `Repository.Get` メソッドの実装とテスト (e8c6e09) (依存: Sub-1, Sub-11)
 - [ ] Sub-13: `repository.go` における `Repository.Preload` メソッドの実装とテスト (依存: Sub-1, Sub-10, Sub-12)
 - [ ] Sub-14: `repository.go` における `Repository.Snapshot` メソッドの実装とテスト (依存: Sub-3, Sub-11)
 
