@@ -330,3 +330,75 @@ func (c *customIterator) All(ctx context.Context) iter.Seq2[string, error] {
 		}
 	}
 }
+
+func TestRepository_Snapshot(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("SuccessCases", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockOpener := NewMockOpener[string, *MockReader](ctrl)
+		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
+		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+
+		items := map[string]string{
+			"k1": "v1",
+			"k2": "v2",
+		}
+
+		for k, v := range items {
+			reader := &MockReader{}
+			mockOpener.EXPECT().Open(ctx, k).Return(reader, nil).Times(1)
+			mockCompiler.EXPECT().Compile(ctx, reader).Return(v, nil).Times(1)
+			_, err := repo.Get(ctx, k)
+			require.NoError(t, err)
+		}
+
+		registry := repo.Snapshot()
+
+		for k, v := range items {
+			got, ok := registry.Get(k)
+			assert.True(t, ok, "key %s should be present", k)
+			assert.Equal(t, v, got)
+		}
+	})
+
+	t.Run("ImmutabilityCases", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockOpener := NewMockOpener[string, *MockReader](ctrl)
+		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
+		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+
+		// Initial state
+		k1, v1 := "k1", "v1"
+		reader1 := &MockReader{}
+		mockOpener.EXPECT().Open(ctx, k1).Return(reader1, nil).Times(1)
+		mockCompiler.EXPECT().Compile(ctx, reader1).Return(v1, nil).Times(1)
+		_, err := repo.Get(ctx, k1)
+		require.NoError(t, err)
+
+		// Take snapshot
+		registry := repo.Snapshot()
+
+		// Add new item after snapshot
+		k2, v2 := "k2", "v2"
+		reader2 := &MockReader{}
+		mockOpener.EXPECT().Open(ctx, k2).Return(reader2, nil).Times(1)
+		mockCompiler.EXPECT().Compile(ctx, reader2).Return(v2, nil).Times(1)
+		_, err = repo.Get(ctx, k2)
+		require.NoError(t, err)
+
+		// Verify snapshot is immutable
+		val, ok := registry.Get(k2)
+		assert.False(t, ok, "snapshot should not contain item added after snapshot")
+		assert.Equal(t, "", val)
+
+		// Verify original item is still there
+		val1, ok1 := registry.Get(k1)
+		assert.True(t, ok1)
+		assert.Equal(t, v1, val1)
+	})
+}
