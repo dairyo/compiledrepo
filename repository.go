@@ -15,6 +15,7 @@ type Repository[K comparable, R io.ReadCloser, V any] struct {
 	compiler Compiler[R, V]
 	cache    sync.Map
 	mu       sync.Mutex
+	muxMap   map[K]*sync.Mutex
 }
 
 // NewRepository creates a new Repository instance with the provided opener and compiler.
@@ -22,6 +23,7 @@ func NewRepository[K comparable, R io.ReadCloser, V any](opener Opener[K, R], co
 	return &Repository[K, R, V]{
 		opener:   opener,
 		compiler: compiler,
+		muxMap:   make(map[K]*sync.Mutex),
 	}
 }
 
@@ -35,8 +37,26 @@ func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (V, error) {
 	}
 
 	// 2. Lock for Compilation
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	val, ok, mux := func() (V, bool, *sync.Mutex) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if val, ok := r.cache.Load(key); ok {
+			return val.(V), true, nil
+		}
+		if mux, ok := r.muxMap[key]; ok {
+			var zero V
+			return zero, false, mux
+		}
+		mux := &sync.Mutex{}
+		r.muxMap[key] = mux
+		var zero V
+		return zero, false, mux
+	}()
+	if ok {
+		return val, nil
+	}
+	mux.Lock()
+	defer mux.Unlock()
 
 	// Double-check cache after acquiring lock to avoid redundant compilation
 	if val, ok := r.cache.Load(key); ok {
