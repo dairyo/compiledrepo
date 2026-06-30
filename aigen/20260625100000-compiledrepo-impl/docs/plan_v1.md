@@ -14,16 +14,16 @@
 - [x] Sub-4: `open/file/opener.go` における `Opener.Open` の実装とテスト (依存: Sub-1, Sub-2) [8994d23]
 - [x] Sub-5: `open/bytesource/opener.go` における `Opener.Open` の実装とテスト (依存: Sub-1, Sub-2) [6f9b473]
 - [x] Sub-6: `open/stringsource/opener.go` における `Opener.Open` の実装とテスト (依存: Sub-1, Sub-2) [f3cabe7]
-- [ ] Sub-7: `compile/jsonschema/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2)
-- [ ] Sub-8: `compile/adapters/bytes/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2)
-- [ ] Sub-9: `compile/adapters/string/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2)
+- [x] Sub-7: `compile/jsonschema/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2)
+- [x] Sub-8: `compile/adapters/bytes/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2)
+- [x] Sub-9: `compile/adapters/string/compiler.go` における `Compiler.Compile` の実装とテスト (依存: Sub-1, Sub-2)
 - [x] Sub-10: `iterate/file/iterator.go` における `KeyIterator.All` の実装とテスト (依存: Sub-1, Sub-2) [8b47f23]
 
 ### Level 2: Repository 統合ロジック
 - [x] Sub-11: `repository.go` における `Repository` 構造体および `NewRepository` の実装 (依存: Sub-2) [718f2f2]
 - [x] Sub-12: `repository.go` における `Repository.Get` メソッドの実装とテスト [405ebcf] (依存: Sub-1, Sub-11)
 - [x] Sub-13: `repository.go` における `Repository.Preload` メソッドの実装とテスト (7f32888) (依存: Sub-1, Sub-10, Sub-12)
-- [ ] Sub-14: `repository.go` における `Repository.Snapshot` メソッドの実装とテスト (依存: Sub-3, Sub-11)
+- [x] Sub-14: `repository.go` における `Repository.Snapshot` メソッドの実装とテスト (依存: Sub-3, Sub-11) [52c36e4]
 
 ---
 
