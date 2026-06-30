@@ -28,33 +28,23 @@ func NewRepository[K comparable, R io.ReadCloser, V any](opener Opener[K, R], co
 }
 
 // Get retrieves a compiled resource associated with the given key.
-// It first checks the cache, then uses a mutex to ensure only one
-// compilation process occurs at a time, with a double-check of the cache.
+// It first checks the cache, then uses a per-key mutex to ensure only one
+// compilation process occurs for the same key concurrently.
 func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (V, error) {
 	// 1. Cache Check (Fast Path)
 	if val, ok := r.cache.Load(key); ok {
 		return val.(V), nil
 	}
 
-	// 2. Lock for Compilation
-	val, ok, mux := func() (V, bool, *sync.Mutex) {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		if val, ok := r.cache.Load(key); ok {
-			return val.(V), true, nil
-		}
-		if mux, ok := r.muxMap[key]; ok {
-			var zero V
-			return zero, false, mux
-		}
-		mux := &sync.Mutex{}
+	// 2. Get or Create Per-Key Mutex
+	r.mu.Lock()
+	mux, ok := r.muxMap[key]
+	if !ok {
+		mux = &sync.Mutex{}
 		r.muxMap[key] = mux
-		var zero V
-		return zero, false, mux
-	}()
-	if ok {
-		return val, nil
 	}
+	r.mu.Unlock()
+
 	mux.Lock()
 	defer mux.Unlock()
 
@@ -83,6 +73,7 @@ func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (V, error) {
 
 	return compiled, nil
 }
+
 
 // Preload populates the cache with resources whose keys are provided by the KeyIterator.
 // It iterates through all keys and calls Get for each. If any error occurs during
