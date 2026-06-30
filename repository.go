@@ -28,14 +28,7 @@ func NewRepository[K comparable, R io.ReadCloser, V any](opener Opener[K, R], co
 // Get retrieves a compiled resource associated with the given key.
 // It first checks the cache, then uses a mutex to ensure only one
 // compilation process occurs at a time, with a double-check of the cache.
-func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (v V, err error) {
-	// Panic recovery to ensure the repository doesn't crash the application
-	defer func() {
-		if p := recover(); p != nil {
-			err = fmt.Errorf("panic recovered during Get: %v", p)
-		}
-	}()
-
+func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (V, error) {
 	// 1. Cache Check (Fast Path)
 	if val, ok := r.cache.Load(key); ok {
 		return val.(V), nil
@@ -53,14 +46,16 @@ func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (v V, err error) {
 	// a. Open
 	reader, err := r.opener.Open(ctx, key)
 	if err != nil {
-		return v, fmt.Errorf("failed to open resource: %w", err)
+		var zero V
+		return zero, fmt.Errorf("failed to open resource: %w", err)
 	}
 	defer reader.Close()
 
 	// b. Compile
 	compiled, err := r.compiler.Compile(ctx, reader)
 	if err != nil {
-		return v, fmt.Errorf("failed to compile resource: %w", err)
+		var zero V
+		return zero, fmt.Errorf("failed to compile resource: %w", err)
 	}
 
 	// c. Cache
