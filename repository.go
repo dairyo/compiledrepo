@@ -14,6 +14,14 @@ type call[V any] struct {
 	err  error
 }
 
+type panicError struct {
+	value any
+}
+
+func (e *panicError) Error() string {
+	return fmt.Sprintf("compilation panicked: %v", e.value)
+}
+
 // Repository manages the lifecycle of compiled resources. It provides
 // efficient access to resources by combining an Opener and a Compiler,
 // while implementing a caching layer and request coalescing.
@@ -62,19 +70,26 @@ func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (V, error) {
 			var zero V
 			return zero, ctx.Err()
 		case <-c.done:
+			if e, ok := c.err.(*panicError); ok {
+				panic(e.value)
+			}
 			return c.val, c.err
 		}
 	}
 
 	// 4. Creator Path: Perform the actual work.
 	defer func() {
-		if p := recover(); p != nil {
-			c.err = fmt.Errorf("compilation panicked: %v", p)
+		p := recover()
+		if p != nil {
+			c.err = &panicError{value: p}
 		}
 		close(c.done)
 		r.mu.Lock()
 		delete(r.calls, key)
 		r.mu.Unlock()
+		if p != nil {
+			panic(p)
+		}
 	}()
 
 	c.val, c.err = r.compileResource(ctx, key)
