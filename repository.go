@@ -7,15 +7,22 @@ import (
 	"sync"
 )
 
+// call represents an in-flight request for a specific key.
+type call[V any] struct {
+	done chan struct{}
+	val  V
+	err  error
+}
+
 // Repository manages the lifecycle of compiled resources. It provides
 // efficient access to resources by combining an Opener and a Compiler,
-// while implementing a caching layer.
+// while implementing a caching layer and request coalescing.
 type Repository[K comparable, R io.ReadCloser, V any] struct {
 	opener   Opener[K, R]
 	compiler Compiler[R, V]
 	cache    sync.Map
 	mu       sync.Mutex
-	muxMap   map[K]*sync.Mutex
+	calls    map[K]*call[V]
 }
 
 // NewRepository creates a new Repository instance with the provided opener and compiler.
@@ -23,40 +30,57 @@ func NewRepository[K comparable, R io.ReadCloser, V any](opener Opener[K, R], co
 	return &Repository[K, R, V]{
 		opener:   opener,
 		compiler: compiler,
-		muxMap:   make(map[K]*sync.Mutex),
+		calls:    make(map[K]*call[V]),
 	}
 }
 
 // Get retrieves a compiled resource associated with the given key.
-// It first checks the cache, then uses a per-key mutex to ensure only one
-// compilation process occurs for the same key concurrently.
+// It first checks the cache, then uses a call-sharing mechanism to ensure
+// only one compilation process occurs for the same key concurrently,
+// broadcasting the result to all concurrent waiters.
 func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (V, error) {
 	// 1. Cache Check (Fast Path)
 	if val, ok := r.cache.Load(key); ok {
 		return val.(V), nil
 	}
 
-	// 2. Get or Create Per-Key Mutex
+	// 2. Get or Create Call Object
 	r.mu.Lock()
-	mux, ok := r.muxMap[key]
+	c, ok := r.calls[key]
 	if !ok {
-		mux = &sync.Mutex{}
-		r.muxMap[key] = mux
+		c = &call[V]{
+			done: make(chan struct{}),
+		}
+		r.calls[key] = c
 	}
 	r.mu.Unlock()
 
-	mux.Lock()
-	defer func() {
-		mux.Unlock()
-		r.mu.Lock()
-		_, ok := r.muxMap[key]
-		if ok {
-			delete(r.muxMap, key)
+	// 3. Waiter Path: If another request is already in flight, wait for its result.
+	if ok {
+		select {
+		case <-ctx.Done():
+			var zero V
+			return zero, ctx.Err()
+		case <-c.done:
+			return c.val, c.err
 		}
+	}
+
+	// 4. Creator Path: Perform the actual work.
+	defer func() {
+		close(c.done)
+		r.mu.Lock()
+		delete(r.calls, key)
 		r.mu.Unlock()
 	}()
 
-	// Double-check cache after acquiring lock to avoid redundant compilation
+	c.val, c.err = r.compileResource(ctx, key)
+
+	return c.val, c.err
+}
+
+func (r *Repository[K, R, V]) compileResource(ctx context.Context, key K) (V, error) {
+	// Double-check cache just in case
 	if val, ok := r.cache.Load(key); ok {
 		return val.(V), nil
 	}
@@ -70,16 +94,16 @@ func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (V, error) {
 	defer reader.Close()
 
 	// b. Compile
-	compiled, err := r.compiler.Compile(ctx, reader)
+	val, err := r.compiler.Compile(ctx, reader)
 	if err != nil {
 		var zero V
 		return zero, fmt.Errorf("failed to compile resource: %w", err)
 	}
 
 	// c. Cache
-	r.cache.Store(key, compiled)
+	r.cache.Store(key, val)
 
-	return compiled, nil
+	return val, nil
 }
 
 // Preload populates the cache with resources whose keys are provided by the KeyIterator.
