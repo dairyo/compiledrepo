@@ -46,7 +46,15 @@ func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (V, error) {
 	r.mu.Unlock()
 
 	mux.Lock()
-	defer mux.Unlock()
+	defer func() {
+		mux.Unlock()
+		r.mu.Lock()
+		_, ok := r.muxMap[key]
+		if ok {
+			delete(r.muxMap, key)
+		}
+		r.mu.Unlock()
+	}()
 
 	// Double-check cache after acquiring lock to avoid redundant compilation
 	if val, ok := r.cache.Load(key); ok {
@@ -73,7 +81,6 @@ func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (V, error) {
 
 	return compiled, nil
 }
-
 
 // Preload populates the cache with resources whose keys are provided by the KeyIterator.
 // It iterates through all keys and calls Get for each. If any error occurs during
