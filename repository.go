@@ -68,6 +68,9 @@ func (r *Repository[K, R, V]) Get(ctx context.Context, key K) (V, error) {
 
 	// 4. Creator Path: Perform the actual work.
 	defer func() {
+		if p := recover(); p != nil {
+			c.err = fmt.Errorf("compilation panicked: %v", p)
+		}
 		close(c.done)
 		r.mu.Lock()
 		delete(r.calls, key)
