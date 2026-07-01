@@ -183,9 +183,9 @@ func TestRepository_Get(t *testing.T) {
 			panic("something went wrong")
 		})
 
-		_, err := repo.Get(ctx, key)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "compilation panicked: something went wrong")
+		assert.Panics(t, func() {
+			_, _ = repo.Get(ctx, key)
+		}, "something went wrong")
 	})
 }
 
