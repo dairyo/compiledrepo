@@ -1,6 +1,7 @@
 package jsonschema
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -60,6 +61,15 @@ func (c *Compile[T]) Compile(ctx context.Context, r io.ReadCloser) (*Validate[T]
 		return nil, fmt.Errorf("%w: failed to unmarshal metadata: %w", compiledrepo.ErrCompile, err)
 	}
 
+	// Compile schema
+	sc := jsonschema.NewCompiler()
+	if err := sc.AddResource("schema.json", bytes.NewReader(env.Schema)); err != nil {
+		return nil, fmt.Errorf("%w: failed to add schema resource: %w", compiledrepo.ErrCompile, err)
+	}
+	if err := sc.Compile("schema.json"); err != nil {
+		return nil, fmt.Errorf("%w: failed to compile schema: %w", compiledrepo.ErrCompile, err)
+	}
+
 	// Check for context cancellation after expensive operation
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -67,5 +77,6 @@ func (c *Compile[T]) Compile(ctx context.Context, r io.ReadCloser) (*Validate[T]
 
 	return &Validate[T]{
 		Metadata: metadata,
+		Schema:   sc.Schema(),
 	}, nil
 }
