@@ -8,11 +8,13 @@ import (
 	"os"
 
 	"github.com/dairyo/compiledrepo"
+	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
-// Schema represents a compiled JSON Schema.
-type Schema struct {
-	Raw []byte
+// Validate represents a compiled JSON resource with its metadata and schema.
+type Validate[T any] struct {
+	Metadata T
+	Schema   *jsonschema.Schema
 }
 
 // Compile implements the compiledrepo.Compiler interface for JSON Schemas.
