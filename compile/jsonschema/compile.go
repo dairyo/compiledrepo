@@ -17,6 +17,11 @@ type Validate[T any] struct {
 	Schema   *jsonschema.Schema
 }
 
+type envelope struct {
+	Metadata json.RawMessage `json:"metadata"`
+	Schema   json.RawMessage `json:"schema"`
+}
+
 // Compile implements the compiledrepo.Compiler interface for JSON Schemas.
 type Compile[T any] struct{}
 
@@ -43,9 +48,10 @@ func (c *Compile[T]) Compile(ctx context.Context, r io.ReadCloser) (*Validate[T]
 		return nil, fmt.Errorf("%w: failed to read file: %w", compiledrepo.ErrCompile, err)
 	}
 
-	// Simulate compilation by validating JSON
-	if !json.Valid(data) {
-		return nil, fmt.Errorf("%w: invalid JSON format", compiledrepo.ErrCompile)
+	// Parse into envelope
+	var env envelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON format: %w", compiledrepo.ErrCompile, err)
 	}
 
 	// Check for context cancellation after expensive operation
