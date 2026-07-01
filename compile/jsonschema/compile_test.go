@@ -17,14 +17,17 @@ func TestCompile_Compile(t *testing.T) {
 		tests := []struct {
 			name    string
 			content string
+			wantMeta string
 		}{
 			{
 				name:    "ValidJSON",
-				content: `{"type": "object", "properties": {"name": {"type": "string"}}}`,
+				content: `{"metadata": "meta1", "schema": {"type": "object", "properties": {"name": {"type": "string"}}}}`,
+				wantMeta: "meta1",
 			},
 			{
 				name:    "EmptyJSON",
-				content: `{}`,
+				content: `{"metadata": "", "schema": {}}`,
+				wantMeta: "",
 			},
 		}
 
@@ -35,10 +38,16 @@ func TestCompile_Compile(t *testing.T) {
 				val, err := compiler.Compile(ctx, r)
 
 				if err != nil {
-					t.Errorf("Compile() unexpected error = %v", err)
+					t.Fatalf("Compile() unexpected error = %v", err)
 				}
 				if val == nil {
-					t.Error("Compile() returned nil result")
+					t.Fatal("Compile() returned nil result")
+				}
+				if val.Metadata != tt.wantMeta {
+					t.Errorf("Compile() metadata = %v, want %v", val.Metadata, tt.wantMeta)
+				}
+				if val.Schema == nil {
+					t.Error("Compile() returned nil schema")
 				}
 			})
 		}
