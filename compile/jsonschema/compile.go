@@ -27,7 +27,7 @@ func NewCompile[T any]() *Compile[T] {
 
 // Compile reads a JSON Schema from the provided file and "compiles" it.
 // In this implementation, "compilation" is simulated by validating that the content is valid JSON.
-func (c *Compile[T]) Compile(ctx context.Context, f *os.File) (*Schema, error) {
+func (c *Compile[T]) Compile(ctx context.Context, f *os.File) (*Validate[T], error) {
 	if f == nil {
 		return nil, fmt.Errorf("%w: file is nil", compiledrepo.ErrCompile)
 	}
@@ -53,5 +53,5 @@ func (c *Compile[T]) Compile(ctx context.Context, f *os.File) (*Schema, error) {
 		return nil, err
 	}
 
-	return &Schema{Raw: data}, nil
+	return &Validate[T]{}, nil
 }
