@@ -54,10 +54,18 @@ func (c *Compile[T]) Compile(ctx context.Context, r io.ReadCloser) (*Validate[T]
 		return nil, fmt.Errorf("%w: invalid JSON format: %w", compiledrepo.ErrCompile, err)
 	}
 
+	// Extract metadata
+	var metadata T
+	if err := json.Unmarshal(env.Metadata, &metadata); err != nil {
+		return nil, fmt.Errorf("%w: failed to unmarshal metadata: %w", compiledrepo.ErrCompile, err)
+	}
+
 	// Check for context cancellation after expensive operation
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	return &Validate[T]{}, nil
+	return &Validate[T]{
+		Metadata: metadata,
+	}, nil
 }
