@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/dairyo/compiledrepo"
 	"github.com/santhosh-tekuri/jsonschema/v5"
@@ -66,7 +65,8 @@ func (c *Compile[T]) Compile(ctx context.Context, r io.ReadCloser) (*Validate[T]
 	if err := sc.AddResource("schema.json", bytes.NewReader(env.Schema)); err != nil {
 		return nil, fmt.Errorf("%w: failed to add schema resource: %w", compiledrepo.ErrCompile, err)
 	}
-	if err := sc.Compile("schema.json"); err != nil {
+	sch, err := sc.Compile("schema.json")
+	if err != nil {
 		return nil, fmt.Errorf("%w: failed to compile schema: %w", compiledrepo.ErrCompile, err)
 	}
 
@@ -77,6 +77,6 @@ func (c *Compile[T]) Compile(ctx context.Context, r io.ReadCloser) (*Validate[T]
 
 	return &Validate[T]{
 		Metadata: metadata,
-		Schema:   sc.Schema(),
+		Schema:   sch,
 	}, nil
 }

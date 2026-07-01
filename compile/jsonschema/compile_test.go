@@ -1,9 +1,10 @@
 package jsonschema
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"os"
+	"io"
 	"testing"
 
 	"github.com/dairyo/compiledrepo"
@@ -29,25 +30,15 @@ func TestCompile_Compile(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				tmpFile, err := os.CreateTemp("", "jsonschema-test-*.json")
-				if err != nil {
-					t.Fatalf("failed to create temp file: %v", err)
-				}
-				defer os.Remove(tmpFile.Name())
-
-				if _, err := tmpFile.Write([]byte(tt.content)); err != nil {
-					t.Fatalf("failed to write to temp file: %v", err)
-				}
-				tmpFile.Seek(0, 0)
-
 				ctx := context.Background()
-				schema, err := compiler.Compile(ctx, tmpFile)
+				r := io.NopCloser(bytes.NewReader([]byte(tt.content)))
+				val, err := compiler.Compile(ctx, r)
 
 				if err != nil {
 					t.Errorf("Compile() unexpected error = %v", err)
 				}
-				if schema == nil {
-					t.Error("Compile() returned nil schema")
+				if val == nil {
+					t.Error("Compile() returned nil result")
 				}
 			})
 		}
@@ -65,7 +56,7 @@ func TestCompile_Compile(t *testing.T) {
 				wantErr: compiledrepo.ErrCompile,
 			},
 			{
-				name:    "NilFile",
+				name:    "NilReader",
 				content: "",
 				wantErr: compiledrepo.ErrCompile,
 			},
@@ -73,23 +64,13 @@ func TestCompile_Compile(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				var tmpFile *os.File
-				var err error
-				if tt.name != "NilFile" {
-					tmpFile, err = os.CreateTemp("", "jsonschema-test-err-*.json")
-					if err != nil {
-						t.Fatalf("failed to create temp file: %v", err)
-					}
-					defer os.Remove(tmpFile.Name())
-
-					if _, err := tmpFile.Write([]byte(tt.content)); err != nil {
-						t.Fatalf("failed to write to temp file: %v", err)
-					}
-					tmpFile.Seek(0, 0)
+				var r io.ReadCloser
+				if tt.name != "NilReader" {
+					r = io.NopCloser(bytes.NewReader([]byte(tt.content)))
 				}
 
 				ctx := context.Background()
-				_, err = compiler.Compile(ctx, tmpFile)
+				_, err := compiler.Compile(ctx, r)
 
 				if !errors.Is(err, tt.wantErr) {
 					t.Errorf("Compile() error = %v, wantErr %v", err, tt.wantErr)
@@ -109,21 +90,12 @@ func TestCompile_Compile(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				tmpFile, err := os.CreateTemp("", "jsonschema-test-ctx-*.json")
-				if err != nil {
-					t.Fatalf("failed to create temp file: %v", err)
-				}
-				defer os.Remove(tmpFile.Name())
-
-				if _, err := tmpFile.Write([]byte(`{}`)); err != nil {
-					t.Fatalf("failed to write to temp file: %v", err)
-				}
-				tmpFile.Seek(0, 0)
+				r := io.NopCloser(bytes.NewReader([]byte(`{`)))
 
 				ctx, cancel := context.WithCancel(context.Background())
 				cancel() // Cancel immediately
 
-				_, err = compiler.Compile(ctx, tmpFile)
+				_, err := compiler.Compile(ctx, r)
 				if !errors.Is(err, context.Canceled) {
 					t.Errorf("Compile() expected context.Canceled, got %v", err)
 				}
@@ -131,3 +103,4 @@ func TestCompile_Compile(t *testing.T) {
 		}
 	})
 }
+
