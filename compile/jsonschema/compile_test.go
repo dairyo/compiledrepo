@@ -65,6 +65,16 @@ func TestCompile_Compile(t *testing.T) {
 				wantErr: compiledrepo.ErrCompile,
 			},
 			{
+				name:    "MissingSchema",
+				content: `{"metadata": "meta"}`,
+				wantErr: compiledrepo.ErrCompile,
+			},
+			{
+				name:    "InvalidSchema",
+				content: `{"metadata": "meta", "schema": {"type": "not-a-type"}}`,
+				wantErr: compiledrepo.ErrCompile,
+			},
+			{
 				name:    "NilReader",
 				content: "",
 				wantErr: compiledrepo.ErrCompile,

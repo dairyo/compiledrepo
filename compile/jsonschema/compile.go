@@ -54,10 +54,16 @@ func (c *Compile[T]) Compile(ctx context.Context, r io.ReadCloser) (*Validate[T]
 		return nil, fmt.Errorf("%w: invalid JSON format: %w", compiledrepo.ErrCompile, err)
 	}
 
-	// Extract metadata
+	if len(env.Schema) == 0 {
+		return nil, fmt.Errorf("%w: missing schema field", compiledrepo.ErrCompile)
+	}
+
+	// Extract metadata (optional)
 	var metadata T
-	if err := json.Unmarshal(env.Metadata, &metadata); err != nil {
-		return nil, fmt.Errorf("%w: failed to unmarshal metadata: %w", compiledrepo.ErrCompile, err)
+	if len(env.Metadata) > 0 {
+		if err := json.Unmarshal(env.Metadata, &metadata); err != nil {
+			return nil, fmt.Errorf("%w: failed to unmarshal metadata: %w", compiledrepo.ErrCompile, err)
+		}
 	}
 
 	// Compile schema
