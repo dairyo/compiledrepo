@@ -10,8 +10,8 @@ import (
 	"github.com/dairyo/compiledrepo"
 )
 
-func TestCompile_Compile(t *testing.T) {
-	compiler := NewCompile[string, io.ReadCloser]()
+func TestCompiler_Compile(t *testing.T) {
+	compiler := NewCompiler[string, io.ReadCloser]()
 
 	t.Run("SuccessCases", func(t *testing.T) {
 		tests := []struct {

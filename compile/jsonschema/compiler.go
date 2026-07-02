@@ -22,17 +22,18 @@ type envelope struct {
 	Schema   json.RawMessage `json:"schema"`
 }
 
-// Compile implements the compiledrepo.Compiler interface for JSON Schemas.
-type Compile[T any, R interface{ io.Reader; comparable }] struct{}
+// Compiler implements the compiledrepo.Compiler interface for JSON Schemas.
+type Compiler[T any, R interface{ io.Reader; comparable }] struct{}
 
-// NewCompile creates a new JSON Schema compiler.
-func NewCompile[T any, R interface{ io.Reader; comparable }]() *Compile[T, R] {
-	return &Compile[T, R]{}
+// NewCompiler creates a new JSON Schema compiler.
+func NewCompiler[T any, R interface{ io.Reader; comparable }]() *Compiler[T, R] {
+	return &Compiler[T, R]{}
 }
 
 // Compile reads a JSON Schema from the provided file and "compiles" it.
 // In this implementation, "compilation" is simulated by validating that the content is valid JSON.
-func (c *Compile[T, R]) Compile(ctx context.Context, r R) (*Validate[T], error) {
+func (c *Compiler[T, R]) Compile(ctx context.Context, r R) (*Validate[T], error) {
+
 	var zeroR R
 	if r == zeroR {
 		return nil, fmt.Errorf("%w: reader is nil", compiledrepo.ErrCompile)
