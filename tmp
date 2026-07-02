@@ -1,0 +1,229 @@
+# compiledrepo — Specification
+(sync.Map or equivalent + singleflight + Registry Snapshot + Standard Modules)
+
+## 1. Overview
+
+`compiledrepo` は、外部リソースを
+**開く (Open)** → **構造化する (Compile)** → **キャッシュして提供する (Repository)**
+という 3 段階のパイプラインを提供する。
+
+Repository は動的に値をロードしキャッシュする。
+Registry は Repository によってロード済みの値を
+**読み取り専用の map[K]V として固定化したスナップショット**である。
+
+`Compiler` は入力ストリームを解析し、**バリデータ V** を生成する。
+JSON Schema Compiler は具象実装として **`*jsonschema.Schema`** を返す。
+
+---
+
+# 2. Interfaces
+
+## 2.1 Opener[K]
+
+```
+Open(ctx, key) → io.ReadCloser, error
+```
+
+- 外部リソースを開く
+- 読み取りやパースは行わない
+- Close は Repository が行う
+
+---
+
+## 2.2 KeyIterator[K]
+
+```
+All(ctx) → iter.Seq2[K, error]
+```
+
+- キーを逐次列挙する
+- ctx のキャンセルを尊重
+- エラーは逐次返す
+
+---
+
+## 2.3 Compiler[V]
+
+```
+Compile(ctx, reader) → V, error
+```
+
+- ストリームを解析し、**バリデータ V** を生成する
+- Close は Repository が行う
+- パースエラーは error
+
+---
+
+# 3. Repository[K, V]
+
+Repository は **動的ロード・キャッシュ・singleflight** を担当する。
+
+```
+Repository {
+    opener      Opener[K]
+    compiler    Compiler[V]
+    cache       （スレッドセーフなキャッシュ実装：sync.Map など）
+    group       singleflight.Group
+}
+```
+
+Repository 自体は mutex を持たない。
+スレッドセーフ性は cache と singleflight によって保証される。
+
+---
+
+# 4. Repository の契約
+
+## 4.1 Get
+
+```
+Get(ctx, key) → V, error
+```
+
+### 動作
+1. キャッシュに key が存在する場合
+   → キャッシュを返す
+
+2. キャッシュに無い場合
+   - singleflight により **同じ key の同時実行を 1 回に集約**
+   - opener.Open(ctx, key)
+   - compiler.Compile(ctx, reader)
+   - 成功した値をキャッシュに保存
+
+### リソース管理
+- opener.Open が返した `io.ReadCloser` は
+  **Compile の成否に関わらず Repository が必ず Close する**
+
+### panic ハンドリング
+- singleflight 内で panic が発生した場合、
+  **Repository は recover により panic を error に変換し、他の呼び出し元に伝播させない**
+
+### コンテキスト制御
+- singleflight 内の I/O は、
+  **呼び出し元 ctx のキャンセルが他の同時リクエストに伝播しないように分離された ctx を使用する**
+- 例：`context.WithoutCancel(ctx)` など
+
+---
+
+## 4.2 Preload
+
+```
+Preload(ctx, iterator) → error
+```
+
+- iterator.All(ctx) の各 key に対して Get を呼ぶ
+- 既にキャッシュされている key はスキップ
+
+### エラーハンドリング（fail-fast）
+- Preload は **fail-fast** を採用する
+- 1 つのキーでエラーが発生した場合、即座に中断
+- ctx がキャンセルされた場合も即座に中断
+
+---
+
+## 4.3 Snapshot（Registry の生成契約）
+
+```
+Snapshot() → Registry[K, V]
+```
+
+### Snapshot の契約
+- Repository のキャッシュ内容を **map[K]V にコピー**して生成
+- Snapshot 生成後の Repository の更新は反映されない
+- Registry は **不変（immutable）**
+
+### コピーの性質
+- Snapshot は **シャローコピー**
+- V がミュータブルな内部状態を持つ場合、その不変性は保証されない
+- V は不変として扱うことを推奨
+
+---
+
+# 5. Registry[K, V]
+
+Registry は **Repository によってロード済みの値を固定化した読み取り専用マップ**。
+
+```
+Registry {
+    items map[K]V   // 不変
+}
+```
+
+## 5.1 Registry の契約
+
+- Repository の Snapshot によって生成される
+- 内部 map は生成後に変更されない
+- I/O や Compile は行わない
+
+---
+
+## 5.2 Registry API（Get のみ）
+
+```
+Get(key) → (V, bool)
+```
+
+---
+
+# 6. Standard Modules（標準モジュール）
+
+## 6.1 FileLoader（標準 Opener）
+
+```
+FileLoader {
+    baseDir string
+}
+```
+
+### 契約
+- key は baseDir からの相対パス
+- Open は該当ファイルを `os.Open` と等価に開く
+- ファイルが存在しない場合は error
+- ディレクトリは対象外
+- Close は Repository が行う
+
+---
+
+## 6.2 JSON Schema Compiler（具象 Compiler）
+
+### 使用ライブラリ
+**github.com/santhosh-tekuri/jsonschema/v5**
+
+### 返すバリデータ型（V）
+```
+*jsonschema.Schema
+```
+
+### Compiler の契約
+
+```
+Compile(ctx, reader) → (*jsonschema.Schema, error)
+```
+
+### 動作
+- reader の内容を JSON Schema として解析する
+- jsonschema/v5 のコンパイラでコンパイルし、
+  **`*jsonschema.Schema`（バリデータ）** を生成する
+- Schema のパースエラーは error
+- Close は Repository が行う
+- panic は recover して error に変換する（Repository の契約に従う）
+
+### バリデーション方法（参考）
+```
+schema.Validate(data)
+```
+
+---
+
+# 7. Design Philosophy
+
+- Repository は動的ロード・キャッシュ・singleflight
+- Registry はロード済み値の固定化スナップショット
+- JSON Schema Compiler は具象であり、`*jsonschema.Schema` を返す
+- Snapshot はシャローコピー
+- Preload は fail-fast
+- panic recover / ctx 分離で堅牢性を確保
+
+---
+
+# End of Document
