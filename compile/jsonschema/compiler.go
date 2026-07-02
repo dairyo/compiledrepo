@@ -23,10 +23,16 @@ type envelope struct {
 }
 
 // Compiler implements the compiledrepo.Compiler interface for JSON Schemas.
-type Compiler[T any, R interface{ io.Reader; comparable }] struct{}
+type Compiler[T any, R interface {
+	io.Reader
+	comparable
+}] struct{}
 
 // NewCompiler creates a new JSON Schema compiler.
-func NewCompiler[T any, R interface{ io.Reader; comparable }]() *Compiler[T, R] {
+func NewCompiler[T any, R interface {
+	io.Reader
+	comparable
+}]() *Compiler[T, R] {
 	return &Compiler[T, R]{}
 }
 

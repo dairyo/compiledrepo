@@ -15,18 +15,18 @@ func TestCompiler_Compile(t *testing.T) {
 
 	t.Run("SuccessCases", func(t *testing.T) {
 		tests := []struct {
-			name    string
-			content string
+			name     string
+			content  string
 			wantMeta string
 		}{
 			{
-				name:    "ValidJSON",
-				content: `{"metadata": "meta1", "schema": {"type": "object", "properties": {"name": {"type": "string"}}}}`,
+				name:     "ValidJSON",
+				content:  `{"metadata": "meta1", "schema": {"type": "object", "properties": {"name": {"type": "string"}}}}`,
 				wantMeta: "meta1",
 			},
 			{
-				name:    "EmptyJSON",
-				content: `{"metadata": "", "schema": {}}`,
+				name:     "EmptyJSON",
+				content:  `{"metadata": "", "schema": {}}`,
 				wantMeta: "",
 			},
 		}
@@ -122,4 +122,3 @@ func TestCompiler_Compile(t *testing.T) {
 		}
 	})
 }
-

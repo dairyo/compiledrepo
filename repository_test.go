@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"iter"
 	"sync"
 	"testing"
 
@@ -14,37 +12,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// MockReader is a simple ReadCloser for testing.
-type MockReader struct {
-	io.Reader
-	closed bool
-}
-
-func (m *MockReader) Close() error {
-	m.closed = true
-	return nil
-}
-
-func (m *MockReader) IsClosed() bool {
-	return m.closed
-}
-
-// MockKeyIterator implements KeyIterator for testing.
-type MockKeyIterator[K comparable] struct {
-	keys []K
-	err  error
-}
-
-func (m *MockKeyIterator[K]) All(ctx context.Context) iter.Seq2[K, error] {
-	return func(yield func(K, error) bool) {
-		for _, k := range m.keys {
-			if !yield(k, m.err) {
-				return
-			}
-		}
-	}
-}
-
 func TestRepository_Get(t *testing.T) {
 	ctx := context.Background()
 
@@ -52,23 +19,23 @@ func TestRepository_Get(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockOpener := NewMockOpener[string, *MockReader](ctrl)
-		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
+		mockOpener := NewMockOpener[string, *MockReadCloser](ctrl)
+		mockCompiler := NewMockCompiler[*MockReadCloser, string](ctrl)
 
-		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+		repo := NewRepository[string, *MockReadCloser, string](mockOpener, mockCompiler)
 
 		key := "test-key"
 		want := "compiled-value"
-		reader := &MockReader{}
+		reader := NewMockReadCloser(ctrl)
 
 		// First access: should trigger Open and Compile
 		mockOpener.EXPECT().Open(ctx, key).Return(reader, nil).Times(1)
 		mockCompiler.EXPECT().Compile(ctx, reader).Return(want, nil).Times(1)
+		reader.EXPECT().Close().Return(nil).Times(1)
 
 		got, err := repo.Get(ctx, key)
 		require.NoError(t, err)
 		assert.Equal(t, want, got)
-		assert.True(t, reader.IsClosed())
 
 		// Second access: should return from cache, NO Open or Compile calls
 		got2, err2 := repo.Get(ctx, key)
@@ -80,18 +47,19 @@ func TestRepository_Get(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockOpener := NewMockOpener[string, *MockReader](ctrl)
-		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
+		mockOpener := NewMockOpener[string, *MockReadCloser](ctrl)
+		mockCompiler := NewMockCompiler[*MockReadCloser, string](ctrl)
 
-		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+		repo := NewRepository[string, *MockReadCloser, string](mockOpener, mockCompiler)
 
 		key := "concurrent-key"
 		want := "concurrent-value"
-		reader := &MockReader{}
+		reader := NewMockReadCloser(ctrl)
 
 		// Even with concurrent requests, Open and Compile should only be called once
 		mockOpener.EXPECT().Open(ctx, key).Return(reader, nil).Times(1)
 		mockCompiler.EXPECT().Compile(ctx, reader).Return(want, nil).Times(1)
+		reader.EXPECT().Close().Return(nil).Times(1)
 
 		var wg sync.WaitGroup
 		numRequests := 10
@@ -126,25 +94,26 @@ func TestRepository_Get(t *testing.T) {
 		tests := []struct {
 			name       string
 			key        string
-			setupMocks func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string])
+			setupMocks func(ctrl *gomock.Controller, op *MockOpener[string, *MockReadCloser], cp *MockCompiler[*MockReadCloser, string])
 			wantErr    error
 			wantErrMsg string
 		}{
 			{
 				name: "Open failure returns context error",
 				key:  "err-key-open",
-				setupMocks: func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string]) {
-					op.EXPECT().Open(ctx, "err-key-open").Return((*MockReader)(nil), fmt.Errorf("disk error")).Times(1)
+				setupMocks: func(ctrl *gomock.Controller, op *MockOpener[string, *MockReadCloser], cp *MockCompiler[*MockReadCloser, string]) {
+					op.EXPECT().Open(ctx, "err-key-open").Return((*MockReadCloser)(nil), fmt.Errorf("disk error")).Times(1)
 				},
 				wantErrMsg: "failed to open resource: disk error",
 			},
 			{
 				name: "Compile failure returns context error",
 				key:  "err-key-compile",
-				setupMocks: func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string]) {
-					reader := &MockReader{}
+				setupMocks: func(ctrl *gomock.Controller, op *MockOpener[string, *MockReadCloser], cp *MockCompiler[*MockReadCloser, string]) {
+					reader := NewMockReadCloser(ctrl)
 					op.EXPECT().Open(ctx, "err-key-compile").Return(reader, nil).Times(1)
 					cp.EXPECT().Compile(ctx, reader).Return("", fmt.Errorf("syntax error")).Times(1)
+					reader.EXPECT().Close().Return(nil).Times(1)
 				},
 				wantErrMsg: "failed to compile resource: syntax error",
 			},
@@ -155,11 +124,11 @@ func TestRepository_Get(t *testing.T) {
 				ctrl := gomock.NewController(t)
 				defer ctrl.Finish()
 
-				mockOpener := NewMockOpener[string, *MockReader](ctrl)
-				mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
-				repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+				mockOpener := NewMockOpener[string, *MockReadCloser](ctrl)
+				mockCompiler := NewMockCompiler[*MockReadCloser, string](ctrl)
+				repo := NewRepository[string, *MockReadCloser, string](mockOpener, mockCompiler)
 
-				tt.setupMocks(mockOpener, mockCompiler)
+				tt.setupMocks(ctrl, mockOpener, mockCompiler)
 
 				_, err := repo.Get(ctx, tt.key)
 				require.Error(t, err)
@@ -172,14 +141,14 @@ func TestRepository_Get(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockOpener := NewMockOpener[string, *MockReader](ctrl)
-		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
+		mockOpener := NewMockOpener[string, *MockReadCloser](ctrl)
+		mockCompiler := NewMockCompiler[*MockReadCloser, string](ctrl)
 
-		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+		repo := NewRepository[string, *MockReadCloser, string](mockOpener, mockCompiler)
 
 		key := "panic-key"
 
-		mockOpener.EXPECT().Open(ctx, key).DoAndReturn(func(ctx context.Context, key string) (*MockReader, error) {
+		mockOpener.EXPECT().Open(ctx, key).DoAndReturn(func(ctx context.Context, key string) (*MockReadCloser, error) {
 			panic("something went wrong")
 		})
 
@@ -196,20 +165,29 @@ func TestRepository_Preload(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockOpener := NewMockOpener[string, *MockReader](ctrl)
-		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
-		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+		mockOpener := NewMockOpener[string, *MockReadCloser](ctrl)
+		mockCompiler := NewMockCompiler[*MockReadCloser, string](ctrl)
+		repo := NewRepository[string, *MockReadCloser, string](mockOpener, mockCompiler)
 
 		keys := []string{"k1", "k2", "k3"}
-		it := &MockKeyIterator[string]{keys: keys}
+		mockIt := NewMockKeyIterator[string](ctrl)
 
 		for _, k := range keys {
-			reader := &MockReader{}
+			reader := NewMockReadCloser(ctrl)
 			mockOpener.EXPECT().Open(ctx, k).Return(reader, nil).Times(1)
 			mockCompiler.EXPECT().Compile(ctx, reader).Return("val-"+k, nil).Times(1)
+			reader.EXPECT().Close().Return(nil).Times(1)
 		}
 
-		err := repo.Preload(ctx, it)
+		mockIt.EXPECT().All(ctx).Return(func(yield func(string, error) bool) {
+			for _, k := range keys {
+				if !yield(k, nil) {
+					return
+				}
+			}
+		})
+
+		err := repo.Preload(ctx, mockIt)
 		require.NoError(t, err)
 
 		// Verify all are cached
@@ -225,7 +203,7 @@ func TestRepository_Preload(t *testing.T) {
 			name       string
 			keys       []string
 			iterErr    error
-			setupMocks func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string], keys []string)
+			setupMocks func(ctrl *gomock.Controller, op *MockOpener[string, *MockReadCloser], cp *MockCompiler[*MockReadCloser, string], keys []string)
 			wantErrMsg string
 			useNilIter bool
 		}{
@@ -233,18 +211,19 @@ func TestRepository_Preload(t *testing.T) {
 				name:    "Iterator returns error",
 				keys:    []string{"k1", "k2"},
 				iterErr: errors.New("iterator failure"),
-				setupMocks: func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string], keys []string) {
-					// Should not be called or only called until error
+				setupMocks: func(ctrl *gomock.Controller, op *MockOpener[string, *MockReadCloser], cp *MockCompiler[*MockReadCloser, string], keys []string) {
+					// Should not be called
 				},
 				wantErrMsg: "preload iteration failed: iterator failure",
 			},
 			{
 				name: "Get returns error for a key",
 				keys: []string{"k1", "k2"},
-				setupMocks: func(op *MockOpener[string, *MockReader], cp *MockCompiler[*MockReader, string], keys []string) {
-					reader := &MockReader{}
+				setupMocks: func(ctrl *gomock.Controller, op *MockOpener[string, *MockReadCloser], cp *MockCompiler[*MockReadCloser, string], keys []string) {
+					reader := NewMockReadCloser(ctrl)
 					op.EXPECT().Open(ctx, "k1").Return(reader, nil).Times(1)
 					cp.EXPECT().Compile(ctx, reader).Return("", fmt.Errorf("compile error")).Times(1)
+					reader.EXPECT().Close().Return(nil).Times(1)
 				},
 				wantErrMsg: "preload failed for key k1: failed to compile resource: compile error",
 			},
@@ -260,16 +239,34 @@ func TestRepository_Preload(t *testing.T) {
 				ctrl := gomock.NewController(t)
 				defer ctrl.Finish()
 
-				mockOpener := NewMockOpener[string, *MockReader](ctrl)
-				mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
-				repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+				mockOpener := NewMockOpener[string, *MockReadCloser](ctrl)
+				mockCompiler := NewMockCompiler[*MockReadCloser, string](ctrl)
+				repo := NewRepository[string, *MockReadCloser, string](mockOpener, mockCompiler)
 
 				var it KeyIterator[string]
 				if !tt.useNilIter {
-					it = &MockKeyIterator[string]{keys: tt.keys, err: tt.iterErr}
+					mockIt := NewMockKeyIterator[string](ctrl)
+					it = mockIt
+					mockIt.EXPECT().All(ctx).Return(func(yield func(string, error) bool) {
+						if tt.iterErr != nil {
+							if !yield("", tt.iterErr) {
+								return
+							}
+							return
+						}
+						// For success cases or other failures, yield the keys
+						for _, k := range tt.keys {
+							if !yield(k, nil) {
+								return
+							}
+						}
+					})
+					if tt.iterErr != nil {
+						// already handled in the return function above
+					}
 				}
 				if tt.setupMocks != nil {
-					tt.setupMocks(mockOpener, mockCompiler, tt.keys)
+					tt.setupMocks(ctrl, mockOpener, mockCompiler, tt.keys)
 				}
 
 				err := repo.Preload(ctx, it)
@@ -283,52 +280,35 @@ func TestRepository_Preload(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockOpener := NewMockOpener[string, *MockReader](ctrl)
-		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
-		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+		mockOpener := NewMockOpener[string, *MockReadCloser](ctrl)
+		mockCompiler := NewMockCompiler[*MockReadCloser, string](ctrl)
+		repo := NewRepository[string, *MockReadCloser, string](mockOpener, mockCompiler)
 
 		cancelCtx, cancel := context.WithCancel(ctx)
 
 		keys := []string{"k1", "k2", "k3"}
 
-		// Setup: k1 succeeds, then cancel context
-		reader1 := &MockReader{}
-		mockOpener.EXPECT().Open(cancelCtx, "k1").Return(reader1, nil).Times(1)
-		mockCompiler.EXPECT().Compile(cancelCtx, reader1).Return("val1", nil).Times(1)
-
-		// We can't easily cancel exactly between iterations in this simple MockKeyIterator
-		// unless we add a hook. Let's use a custom iterator.
-		customIt := &customIterator{
-			keys: keys,
-			onNext: func(k string) {
+		mockIt := NewMockKeyIterator[string](ctrl)
+		mockIt.EXPECT().All(cancelCtx).Return(func(yield func(string, error) bool) {
+			for _, k := range keys {
 				if k == "k1" {
 					cancel()
 				}
-			},
-		}
+				if !yield(k, nil) {
+					return
+				}
+			}
+		})
 
-		err := repo.Preload(cancelCtx, customIt)
+		reader := NewMockReadCloser(ctrl)
+		mockOpener.EXPECT().Open(cancelCtx, "k1").Return(reader, nil).Times(1)
+		mockCompiler.EXPECT().Compile(cancelCtx, reader).Return("val1", nil).Times(1)
+		reader.EXPECT().Close().Return(nil).Times(1)
+
+		err := repo.Preload(cancelCtx, mockIt)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, context.Canceled))
 	})
-}
-
-type customIterator struct {
-	keys   []string
-	onNext func(string)
-}
-
-func (c *customIterator) All(ctx context.Context) iter.Seq2[string, error] {
-	return func(yield func(string, error) bool) {
-		for _, k := range c.keys {
-			if c.onNext != nil {
-				c.onNext(k)
-			}
-			if !yield(k, nil) {
-				return
-			}
-		}
-	}
 }
 
 func TestRepository_Snapshot(t *testing.T) {
@@ -338,9 +318,9 @@ func TestRepository_Snapshot(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockOpener := NewMockOpener[string, *MockReader](ctrl)
-		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
-		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+		mockOpener := NewMockOpener[string, *MockReadCloser](ctrl)
+		mockCompiler := NewMockCompiler[*MockReadCloser, string](ctrl)
+		repo := NewRepository[string, *MockReadCloser, string](mockOpener, mockCompiler)
 
 		items := map[string]string{
 			"k1": "v1",
@@ -348,9 +328,10 @@ func TestRepository_Snapshot(t *testing.T) {
 		}
 
 		for k, v := range items {
-			reader := &MockReader{}
+			reader := NewMockReadCloser(ctrl)
 			mockOpener.EXPECT().Open(ctx, k).Return(reader, nil).Times(1)
 			mockCompiler.EXPECT().Compile(ctx, reader).Return(v, nil).Times(1)
+			reader.EXPECT().Close().Return(nil).Times(1)
 			_, err := repo.Get(ctx, k)
 			require.NoError(t, err)
 		}
@@ -368,15 +349,16 @@ func TestRepository_Snapshot(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		mockOpener := NewMockOpener[string, *MockReader](ctrl)
-		mockCompiler := NewMockCompiler[*MockReader, string](ctrl)
-		repo := NewRepository[string, *MockReader, string](mockOpener, mockCompiler)
+		mockOpener := NewMockOpener[string, *MockReadCloser](ctrl)
+		mockCompiler := NewMockCompiler[*MockReadCloser, string](ctrl)
+		repo := NewRepository[string, *MockReadCloser, string](mockOpener, mockCompiler)
 
 		// Initial state
 		k1, v1 := "k1", "v1"
-		reader1 := &MockReader{}
+		reader1 := NewMockReadCloser(ctrl)
 		mockOpener.EXPECT().Open(ctx, k1).Return(reader1, nil).Times(1)
 		mockCompiler.EXPECT().Compile(ctx, reader1).Return(v1, nil).Times(1)
+		reader1.EXPECT().Close().Return(nil).Times(1)
 		_, err := repo.Get(ctx, k1)
 		require.NoError(t, err)
 
@@ -385,9 +367,10 @@ func TestRepository_Snapshot(t *testing.T) {
 
 		// Add new item after snapshot
 		k2, v2 := "k2", "v2"
-		reader2 := &MockReader{}
+		reader2 := NewMockReadCloser(ctrl)
 		mockOpener.EXPECT().Open(ctx, k2).Return(reader2, nil).Times(1)
 		mockCompiler.EXPECT().Compile(ctx, reader2).Return(v2, nil).Times(1)
+		reader2.EXPECT().Close().Return(nil).Times(1)
 		_, err = repo.Get(ctx, k2)
 		require.NoError(t, err)
 
