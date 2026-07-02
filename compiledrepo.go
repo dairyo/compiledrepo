@@ -15,7 +15,7 @@ type Opener[K comparable, R io.ReadCloser] interface {
 
 // Compiler defines the interface for compiling/transforming a resource R
 // into a target value V.
-type Compiler[R io.ReadCloser, V any] interface {
+type Compiler[R io.Reader, V any] interface {
 	// Compile transforms the provided resource into the target type.
 	Compile(ctx context.Context, r R) (V, error)
 }
