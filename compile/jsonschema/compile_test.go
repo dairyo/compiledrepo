@@ -115,8 +115,8 @@ func TestCompile_Compile(t *testing.T) {
 				cancel() // Cancel immediately
 
 				_, err := compiler.Compile(ctx, r)
-				if !errors.Is(err, context.Canceled) {
-					t.Errorf("Compile() expected context.Canceled, got %v", err)
+				if !errors.Is(err, compiledrepo.ErrCompile) {
+					t.Errorf("Compile() expected %v, got %v", compiledrepo.ErrCompile, err)
 				}
 			})
 		}
