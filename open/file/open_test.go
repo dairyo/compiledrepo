@@ -10,7 +10,7 @@ import (
 	"github.com/dairyo/compiledrepo"
 )
 
-func TestOpener_Open(t *testing.T) {
+func TestOpen_Open(t *testing.T) {
 	t.Run("SuccessCases", func(t *testing.T) {
 		// Create a temporary file for testing
 		tmpDir := t.TempDir()
@@ -19,7 +19,7 @@ func TestOpener_Open(t *testing.T) {
 			t.Fatalf("failed to create temp file: %v", err)
 		}
 
-		opener := NewOpener()
+		opener := NewOpen()
 		ctx := context.Background()
 
 		tests := []struct {
@@ -51,7 +51,7 @@ func TestOpener_Open(t *testing.T) {
 	})
 
 	t.Run("ErrorCases", func(t *testing.T) {
-		opener := NewOpener()
+		opener := NewOpen()
 		ctx := context.Background()
 
 		tests := []struct {
@@ -81,7 +81,7 @@ func TestOpener_Open(t *testing.T) {
 	})
 
 	t.Run("ContextCancellation", func(t *testing.T) {
-		opener := NewOpener()
+		opener := NewOpen()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 

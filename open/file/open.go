@@ -8,17 +8,17 @@ import (
 	"github.com/dairyo/compiledrepo"
 )
 
-// Opener implements compiledrepo.Opener for local files.
-type Opener struct{}
+// Open implements compiledrepo.Opener for local files.
+type Open struct{}
 
-// NewOpener creates a new Opener instance.
-func NewOpener() *Opener {
-	return &Opener{}
+// NewOpen creates a new Open instance.
+func NewOpen() *Open {
+	return &Open{}
 }
 
 // Open opens the file at the given path.
 // It returns the file handle or an error wrapped with compiledrepo.ErrOpen.
-func (o *Opener) Open(ctx context.Context, path string) (*os.File, error) {
+func (o *Open) Open(ctx context.Context, path string) (*os.File, error) {
 	// Check for context cancellation before starting the operation.
 	select {
 	case <-ctx.Done():
