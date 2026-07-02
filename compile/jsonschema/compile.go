@@ -23,17 +23,18 @@ type envelope struct {
 }
 
 // Compile implements the compiledrepo.Compiler interface for JSON Schemas.
-type Compile[T any, R io.Reader] struct{}
+type Compile[T any, R interface{ io.Reader; comparable }] struct{}
 
 // NewCompile creates a new JSON Schema compiler.
-func NewCompile[T any, R io.Reader]() *Compile[T, R] {
+func NewCompile[T any, R interface{ io.Reader; comparable }]() *Compile[T, R] {
 	return &Compile[T, R]{}
 }
 
 // Compile reads a JSON Schema from the provided file and "compiles" it.
 // In this implementation, "compilation" is simulated by validating that the content is valid JSON.
 func (c *Compile[T, R]) Compile(ctx context.Context, r R) (*Validate[T], error) {
-	if r == nil {
+	var zeroR R
+	if r == zeroR {
 		return nil, fmt.Errorf("%w: reader is nil", compiledrepo.ErrCompile)
 	}
 
