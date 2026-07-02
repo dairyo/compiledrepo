@@ -11,7 +11,7 @@ import (
 )
 
 func TestCompile_Compile(t *testing.T) {
-	compiler := NewCompile[string]()
+	compiler := NewCompile[string, io.ReadCloser]()
 
 	t.Run("SuccessCases", func(t *testing.T) {
 		tests := []struct {
@@ -115,8 +115,8 @@ func TestCompile_Compile(t *testing.T) {
 				cancel() // Cancel immediately
 
 				_, err := compiler.Compile(ctx, r)
-				if !errors.Is(err, compiledrepo.ErrCompile) {
-					t.Errorf("Compile() expected %v, got %v", compiledrepo.ErrCompile, err)
+				if !errors.Is(err, context.Canceled) {
+					t.Errorf("Compile() expected %v, got %v", context.Canceled, err)
 				}
 			})
 		}
