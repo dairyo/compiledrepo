@@ -23,18 +23,23 @@ type envelope struct {
 }
 
 // Compile implements the compiledrepo.Compiler interface for JSON Schemas.
-type Compile[T any] struct{}
+type Compile[T any, R io.Reader] struct{}
 
 // NewCompile creates a new JSON Schema compiler.
-func NewCompile[T any]() *Compile[T] {
-	return &Compile[T]{}
+func NewCompile[T any, R io.Reader]() *Compile[T, R] {
+	return &Compile[T, R]{}
 }
 
 // Compile reads a JSON Schema from the provided file and "compiles" it.
 // In this implementation, "compilation" is simulated by validating that the content is valid JSON.
-func (c *Compile[T]) Compile(ctx context.Context, r io.ReadCloser) (*Validate[T], error) {
+func (c *Compile[T, R]) Compile(ctx context.Context, r R) (*Validate[T], error) {
 	if r == nil {
 		return nil, fmt.Errorf("%w: reader is nil", compiledrepo.ErrCompile)
+	}
+
+	// Check for context cancellation before reading
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	// Read the entire content of the file
@@ -69,6 +74,11 @@ func (c *Compile[T]) Compile(ctx context.Context, r io.ReadCloser) (*Validate[T]
 	sch, err := sc.Compile("schema.json")
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to compile schema: %w", compiledrepo.ErrCompile, err)
+	}
+
+	// Check for context cancellation after expensive operation
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	return &Validate[T]{
