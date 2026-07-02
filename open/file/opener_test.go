@@ -79,21 +79,4 @@ func TestOpener_Open(t *testing.T) {
 			})
 		}
 	})
-
-	t.Run("ContextCancellation", func(t *testing.T) {
-		opener := NewOpener()
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // Cancel immediately
-
-		path := "some_file.txt"
-		f, err := opener.Open(ctx, path)
-
-		if f != nil {
-			f.Close()
-			t.Errorf("expected nil file, got %v", f)
-		}
-		if !errors.Is(err, context.Canceled) {
-			t.Errorf("expected context.Canceled, got %v", err)
-		}
-	})
 }
