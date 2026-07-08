@@ -11,14 +11,12 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
-// Validate represents a compiled JSON resource with its metadata and schema.
+// Validate represents a compiled JSON resource with its schema.
 type Validate[T any] struct {
-	Metadata T
 	Schema   *jsonschema.Schema
 }
 
 type envelope struct {
-	Metadata json.RawMessage `json:"metadata"`
 	Schema   json.RawMessage `json:"schema"`
 }
 
@@ -66,14 +64,6 @@ func (c *Compiler[T, R]) Compile(ctx context.Context, r R) (*Validate[T], error)
 		return nil, fmt.Errorf("%w: missing schema field", compiledrepo.ErrCompile)
 	}
 
-	// Extract metadata (optional)
-	var metadata T
-	if len(env.Metadata) > 0 {
-		if err := json.Unmarshal(env.Metadata, &metadata); err != nil {
-			return nil, fmt.Errorf("%w: failed to unmarshal metadata: %w", compiledrepo.ErrCompile, err)
-		}
-	}
-
 	// Compile schema
 	sc := jsonschema.NewCompiler()
 	if err := sc.AddResource("schema.json", bytes.NewReader(env.Schema)); err != nil {
@@ -90,7 +80,6 @@ func (c *Compiler[T, R]) Compile(ctx context.Context, r R) (*Validate[T], error)
 	}
 
 	return &Validate[T]{
-		Metadata: metadata,
 		Schema:   sch,
 	}, nil
 }
