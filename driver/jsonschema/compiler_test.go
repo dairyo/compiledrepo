@@ -11,20 +11,20 @@ import (
 )
 
 func TestCompiler_Compile(t *testing.T) {
-	compiler := NewCompiler[string, io.ReadCloser]()
+	compiler := NewCompiler[io.Reader]()
 
 	t.Run("SuccessCases", func(t *testing.T) {
 		tests := []struct {
-			name     string
-			content  string
+			name    string
+			content string
 		}{
 			{
-				name:     "ValidJSON",
-				content:  `{"metadata": "meta1", "schema": {"type": "object", "properties": {"name": {"type": "string"}}}}`,
+				name:    "ValidJSON",
+				content: `{"type": "object", "properties": {"name": {"type": "string"}}}`,
 			},
 			{
-				name:     "EmptyJSON",
-				content:  `{"metadata": "", "schema": {}}`,
+				name:    "EmptyJSON",
+				content: `{}`,
 			},
 		}
 
@@ -39,9 +39,6 @@ func TestCompiler_Compile(t *testing.T) {
 				}
 				if val == nil {
 					t.Fatal("Compile() returned nil result")
-				}
-				if val.Schema == nil {
-					t.Error("Compile() returned nil schema")
 				}
 			})
 		}
@@ -59,13 +56,8 @@ func TestCompiler_Compile(t *testing.T) {
 				wantErr: compiledrepo.ErrCompile,
 			},
 			{
-				name:    "MissingSchema",
-				content: `{"metadata": "meta"}`,
-				wantErr: compiledrepo.ErrCompile,
-			},
-			{
 				name:    "InvalidSchema",
-				content: `{"metadata": "meta", "schema": {"type": "not-a-type"}}`,
+				content: `{"type": "not-a-type"}`,
 				wantErr: compiledrepo.ErrCompile,
 			},
 			{
@@ -77,7 +69,7 @@ func TestCompiler_Compile(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				var r io.ReadCloser
+				var r io.Reader
 				if tt.name != "NilReader" {
 					r = io.NopCloser(bytes.NewReader([]byte(tt.content)))
 				}
