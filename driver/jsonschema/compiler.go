@@ -6,7 +6,7 @@ import (
 	"io"
 
 	"github.com/dairyo/compiledrepo"
-	"github.com/santhosh-tekuri/jsonschema/v5"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // Compiler implements the compiledrepo.Compiler interface for JSON Schemas.
@@ -39,7 +39,11 @@ func (c *Compiler[R]) Compile(ctx context.Context, r R) (*jsonschema.Schema, err
 
 	// Compile schema
 	sc := jsonschema.NewCompiler()
-	if err := sc.AddResource("schema.json", r); err != nil {
+	doc, err := jsonschema.UnmarshalJSON(r)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to unmarshal schema JSON: %w", compiledrepo.ErrCompile, err)
+	}
+	if err := sc.AddResource("schema.json", doc); err != nil {
 		return nil, fmt.Errorf("%w: failed to add schema resource: %w", compiledrepo.ErrCompile, err)
 	}
 	sch, err := sc.Compile("schema.json")

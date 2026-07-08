@@ -24,7 +24,7 @@ import (
 	"github.com/dairyo/compiledrepo"
 	"github.com/dairyo/compiledrepo/driver/file"
 	"github.com/dairyo/compiledrepo/driver/jsonschema"
-	"github.com/santhosh-tekuri/jsonschema/v5"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 func main() {
