@@ -13,14 +13,21 @@ import (
 type Compiler[R interface {
 	io.Reader
 	comparable
-}] struct{}
+}] struct {
+	configFuncs []func(*jsonschema.Compiler)
+}
 
 // NewCompiler creates a new JSON Schema compiler.
+// The opts parameter accepts zero or more configuration functions that are applied
+// to the underlying jsonschema.Compiler before each compilation. This allows
+// users to customize settings like custom formats, content assertions, or the default draft.
 func NewCompiler[R interface {
 	io.Reader
 	comparable
-}]() *Compiler[R] {
-	return &Compiler[R]{}
+}] (opts ...func(*jsonschema.Compiler)) *Compiler[R] {
+	return &Compiler[R]{
+		configFuncs: opts,
+	}
 }
 
 // Compile reads a JSON Schema from the provided file and "compiles" it.
@@ -39,6 +46,9 @@ func (c *Compiler[R]) Compile(ctx context.Context, r R) (*jsonschema.Schema, err
 
 	// Compile schema
 	sc := jsonschema.NewCompiler()
+	for _, fn := range c.configFuncs {
+		fn(sc)
+	}
 	doc, err := jsonschema.UnmarshalJSON(r)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to unmarshal schema JSON: %w", compiledrepo.ErrCompile, err)
